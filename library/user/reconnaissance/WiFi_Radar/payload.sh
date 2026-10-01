@@ -39,17 +39,21 @@ for i in wlan0cli wlan1cli; do [ -e "/sys/class/net/$i" ] && IFACES="$IFACES $i"
 parse_scan() {
     awk '
     function hv(c){ c=tolower(c); return index("0123456789abcdef",c)-1 }
-    /Address:/ { addr=$NF; ess=""; enc=0 }
+    function flush(   aa,nn,jj,hh){
+        if(addr==""){ return }
+        aa=addr; gsub(":","",aa); nn=length(aa); hh=0
+        if(nn>=4){ for(jj=nn-3;jj<=nn;jj++) hh=hh*16+hv(substr(aa,jj,1)); hh=hh%1024 }
+        print hh, sig+0, ch+0, enc+0, addr, ess
+    }
+    /Address:/ { flush(); addr=$NF; ess=""; enc=0; sig=0; ch=0; fr=0 }
     /ESSID:/   { ess=$0; sub(/.*ESSID:[ ]*/,"",ess); gsub(/^"|"$/,"",ess)
                  if(ess=="unknown") ess="" }
     /Channel:/ { for(i=1;i<=NF;i++) if($i=="Channel:") ch=$(i+1) }
     /Encryption:/ { e=tolower($0)
-                 if(e~/wpa3/)enc=4; else if(e~/wpa2/)enc=3; else if(e~/wpa/)enc=2
-                 else if(e~/wep/)enc=1; else enc=0 }
-    /Signal:/  { for(i=1;i<=NF;i++) if($i=="Signal:")  sig=$(i+1)
-                 a=addr; gsub(":","",a); n=length(a); h=0
-                 if(n>=4){ for(i=n-3;i<=n;i++) h=h*16+hv(substr(a,i,1)); h=h%1024 }
-                 print h, sig+0, ch+0, enc, addr, ess }
+                 if(e~/wpa3|sae/)enc=4; else if(e~/wpa2/)enc=3; else if(e~/wpa/)enc=2
+                 else if(e~/wep/)enc=1; else if(e~/none|open/)enc=0; else enc=0 }
+    /Signal:/  { for(i=1;i<=NF;i++) if($i=="Signal:") sig=$(i+1) }
+    END { flush() }
     '
 }
 
