@@ -17,13 +17,22 @@ plots every nearby AP as a blip — the first graphical recon display for the Pa
   - **colour** — band: **green = 2.4 GHz**, **cyan = 5 GHz**,
   - blips **flash** (with a halo) as the sweep passes and **fade** when an AP
     drops out of range.
-- A **side panel** shows the band filter, AP count, and the **selected AP's SSID, channel, and signal** (with a signal bar).
+- Open networks are flagged **red** on the scope (insecure at a glance).
+- A **side panel** shows the band filter, AP count, and the selected AP's SSID /
+  BSSID / channel / signal (with a signal bar + encryption badge).
 
 ## Controls
 
-- **Up / Down** — select a blip (shows its SSID, channel, signal in the panel)
+- **Up / Down** — select a blip (SSID / channel / signal shown in the panel)
+- **Red (A)** — open the selected AP's **detail card** (press again to go back)
 - **B (Green)** — cycle band filter: all → 2.4 GHz → 5 GHz (labelled in the panel)
-- **A (Red)** or **Power** — exit
+- **Power** — exit
+
+### Detail card
+
+Pressing Red on a selected blip opens a full recon view: large SSID, **BSSID**,
+band / channel / frequency, an **encryption badge** (open networks flagged red),
+and a **semicircular signal gauge** with dBm + quality (STRONG/GOOD/FAIR/WEAK).
 
 ## How it works
 

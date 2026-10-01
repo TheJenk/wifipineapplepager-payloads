@@ -1,13 +1,13 @@
 #!/bin/bash
 # Title: WiFi Radar
 # Author: Jenx
-# Description: A 20fps framebuffer radar scope of nearby Wi-Fi APs. A rotating sweep plots each AP as a blip - angle is stable per BSSID, radius is signal (stronger = centre), colour is band (green 2.4 / cyan 5 GHz); blips flash as the sweep passes and fade with age. Green (B) cycles band filter; Red exits. Read-only.
-# Version: 1.1
+# Description: A 20fps framebuffer radar scope of nearby Wi-Fi APs. A rotating sweep plots each AP as a blip - angle is stable per BSSID, radius is signal (stronger = centre), colour is band (green 2.4 / cyan 5 GHz); blips flash as the sweep passes and fade with age. Up/Down select a blip, Red opens a recon detail card, B cycles band filter, Power exits. Read-only.
+# Version: 1.2
 # Category: reconnaissance
 
 # ---------------------------------------------------------------------------
-# Controls:  Up/Down = select a blip (SSID/ch/signal panel)
-#            B (Green) = band filter (all / 2.4 / 5)   A (Red) / Power = exit
+# Controls:  Up/Down = select a blip       Red (A) = open/close detail card
+#            B (Green) = band filter       Power = exit
 #
 # The slow Wi-Fi scan runs here in the background (writes /tmp/radar.dat); the
 # native binary just reads it and renders, which keeps the sweep smooth at the
@@ -39,14 +39,17 @@ for i in wlan0cli wlan1cli; do [ -e "/sys/class/net/$i" ] && IFACES="$IFACES $i"
 parse_scan() {
     awk '
     function hv(c){ c=tolower(c); return index("0123456789abcdef",c)-1 }
-    /Address:/ { addr=$NF; ess="" }
+    /Address:/ { addr=$NF; ess=""; enc=0 }
     /ESSID:/   { ess=$0; sub(/.*ESSID:[ ]*/,"",ess); gsub(/^"|"$/,"",ess)
                  if(ess=="unknown") ess="" }
     /Channel:/ { for(i=1;i<=NF;i++) if($i=="Channel:") ch=$(i+1) }
+    /Encryption:/ { e=tolower($0)
+                 if(e~/wpa3/)enc=4; else if(e~/wpa2/)enc=3; else if(e~/wpa/)enc=2
+                 else if(e~/wep/)enc=1; else enc=0 }
     /Signal:/  { for(i=1;i<=NF;i++) if($i=="Signal:")  sig=$(i+1)
                  a=addr; gsub(":","",a); n=length(a); h=0
                  if(n>=4){ for(i=n-3;i<=n;i++) h=h*16+hv(substr(a,i,1)); h=h%1024 }
-                 print h, sig+0, ch+0, ess }
+                 print h, sig+0, ch+0, enc, addr, ess }
     '
 }
 
