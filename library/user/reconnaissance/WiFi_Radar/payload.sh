@@ -6,7 +6,8 @@
 # Category: reconnaissance
 
 # ---------------------------------------------------------------------------
-# Controls:  B (Green) = band filter (all / 2.4 / 5)   A (Red) / Power = exit
+# Controls:  Up/Down = select a blip (SSID/ch/signal panel)
+#            B (Green) = band filter (all / 2.4 / 5)   A (Red) / Power = exit
 #
 # The slow Wi-Fi scan runs here in the background (writes /tmp/radar.dat); the
 # native binary just reads it and renders, which keeps the sweep smooth at the
