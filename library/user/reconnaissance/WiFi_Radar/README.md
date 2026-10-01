@@ -17,11 +17,12 @@ plots every nearby AP as a blip — the first graphical recon display for the Pa
   - **colour** — band: **green = 2.4 GHz**, **cyan = 5 GHz**,
   - blips **flash** (with a halo) as the sweep passes and **fade** when an AP
     drops out of range.
-- **Count** of visible APs, top-left. **Band-filter** indicator dot, top-right.
+- A **side panel** shows the band filter, AP count, and the **selected AP's SSID, channel, and signal** (with a signal bar).
 
 ## Controls
 
-- **B (Green)** — cycle band filter: all → 2.4 GHz → 5 GHz
+- **Up / Down** — select a blip (shows its SSID, channel, signal in the panel)
+- **B (Green)** — cycle band filter: all → 2.4 GHz → 5 GHz (labelled in the panel)
 - **A (Red)** or **Power** — exit
 
 ## How it works
@@ -50,6 +51,5 @@ nothing.** Scanning briefly uses a client radio.
 
 ## Ideas for later
 
-- Select a blip (d-pad) and show its SSID/BSSID/channel (needs a small font).
 - Client/probe mode (toggle APs ↔ clients).
 - Persist strongest-ever ring, or a "closest AP" callout.

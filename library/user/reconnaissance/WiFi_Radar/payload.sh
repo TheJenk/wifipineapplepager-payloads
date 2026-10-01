@@ -2,7 +2,7 @@
 # Title: WiFi Radar
 # Author: Jenx
 # Description: A 20fps framebuffer radar scope of nearby Wi-Fi APs. A rotating sweep plots each AP as a blip - angle is stable per BSSID, radius is signal (stronger = centre), colour is band (green 2.4 / cyan 5 GHz); blips flash as the sweep passes and fade with age. Green (B) cycles band filter; Red exits. Read-only.
-# Version: 1.0
+# Version: 1.1
 # Category: reconnaissance
 
 # ---------------------------------------------------------------------------
@@ -38,12 +38,14 @@ for i in wlan0cli wlan1cli; do [ -e "/sys/class/net/$i" ] && IFACES="$IFACES $i"
 parse_scan() {
     awk '
     function hv(c){ c=tolower(c); return index("0123456789abcdef",c)-1 }
-    /Address:/ { addr=$NF }
+    /Address:/ { addr=$NF; ess="" }
+    /ESSID:/   { ess=$0; sub(/.*ESSID:[ ]*/,"",ess); gsub(/^"|"$/,"",ess)
+                 if(ess=="unknown") ess="" }
     /Channel:/ { for(i=1;i<=NF;i++) if($i=="Channel:") ch=$(i+1) }
     /Signal:/  { for(i=1;i<=NF;i++) if($i=="Signal:")  sig=$(i+1)
                  a=addr; gsub(":","",a); n=length(a); h=0
                  if(n>=4){ for(i=n-3;i<=n;i++) h=h*16+hv(substr(a,i,1)); h=h%1024 }
-                 print h, sig+0, ch+0 }
+                 print h, sig+0, ch+0, ess }
     '
 }
 
