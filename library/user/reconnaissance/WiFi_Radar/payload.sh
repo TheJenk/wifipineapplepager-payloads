@@ -2,7 +2,7 @@
 # Title: WiFi Radar
 # Author: Jenx
 # Description: A 20fps framebuffer radar scope of nearby Wi-Fi APs. A rotating sweep plots each AP as a blip - angle is stable per BSSID, radius is signal (stronger = centre), colour is band (green 2.4 / cyan 5 GHz); blips flash as the sweep passes and fade with age. Up/Down select a blip, Red opens a recon detail card, B cycles band filter, Power exits. Read-only.
-# Version: 1.2
+# Version: 1.3
 # Category: reconnaissance
 
 # ---------------------------------------------------------------------------
@@ -35,35 +35,68 @@ IFACES=""
 for i in wlan0cli wlan1cli; do [ -e "/sys/class/net/$i" ] && IFACES="$IFACES $i"; done
 [ -z "$IFACES" ] && IFACES="wlan0cli"
 
-# parse an iwinfo scan into "hash signal channel" lines (hash = stable per BSSID)
-parse_scan() {
+# emits "hash signal channel enc band bssid ssid"  (band 0=2.4 1=5 2=6)
+
+# Preferred: iw scan gives frequency -> correct band (5 & 6 GHz share channel #s).
+parse_iw() {
     awk '
     function hv(c){ c=tolower(c); return index("0123456789abcdef",c)-1 }
-    function flush(   aa,nn,jj,hh){
+    function flush(   aa,nn,jj,hh,band,chan,enc){
+        if(bss==""){ return }
+        if(freq<2500){ band=0; chan=(freq==2484)?14:int((freq-2407)/5) }
+        else if(freq<5925){ band=1; chan=int((freq-5000)/5) }
+        else { band=2; chan=int((freq-5950)/5) }
+        enc=0; if(rsn){ enc=sae?4:3 } else if(wpa){ enc=2 } else if(priv){ enc=1 } else enc=0
+        aa=bss; gsub(":","",aa); nn=length(aa); hh=0
+        if(nn>=4){ for(jj=nn-3;jj<=nn;jj++) hh=hh*16+hv(substr(aa,jj,1)); hh=hh%1024 }
+        print hh, sigint, chan, enc, band, bss, ssid
+    }
+    /^BSS /    { flush(); bss=$2; sub(/\(.*/,"",bss); freq=0;sigint=0;ssid="";rsn=0;wpa=0;sae=0;priv=0 }
+    /freq:/    { for(i=1;i<=NF;i++) if($i=="freq:") freq=$(i+1)+0 }
+    /signal:/  { for(i=1;i<=NF;i++) if($i=="signal:") sigint=int($(i+1)) }
+    /SSID:/    { ssid=$0; sub(/.*SSID: ?/,"",ssid) }
+    /capability:/ { if($0 ~ /Privacy/) priv=1 }
+    /RSN:/     { rsn=1 }
+    /WPA:/     { wpa=1 }
+    /SAE/      { sae=1 }
+    END { flush() }
+    '
+}
+
+# Fallback: iwinfo scan (no frequency -> band guessed from channel, 2.4 vs 5 only).
+parse_iwinfo() {
+    awk '
+    function hv(c){ c=tolower(c); return index("0123456789abcdef",c)-1 }
+    function flush(   aa,nn,jj,hh,band){
         if(addr==""){ return }
+        band=(ch<=14)?0:1
         aa=addr; gsub(":","",aa); nn=length(aa); hh=0
         if(nn>=4){ for(jj=nn-3;jj<=nn;jj++) hh=hh*16+hv(substr(aa,jj,1)); hh=hh%1024 }
-        print hh, sig+0, ch+0, enc+0, addr, ess
+        print hh, sig+0, ch+0, enc+0, band, addr, ess
     }
-    /Address:/ { flush(); addr=$NF; ess=""; enc=0; sig=0; ch=0; fr=0 }
-    /ESSID:/   { ess=$0; sub(/.*ESSID:[ ]*/,"",ess); gsub(/^"|"$/,"",ess)
-                 if(ess=="unknown") ess="" }
+    /Address:/ { flush(); addr=$NF; ess=""; enc=0; sig=0; ch=0 }
+    /ESSID:/   { ess=$0; sub(/.*ESSID:[ ]*/,"",ess); gsub(/^"|"$/,"",ess); if(ess=="unknown") ess="" }
     /Channel:/ { for(i=1;i<=NF;i++) if($i=="Channel:") ch=$(i+1) }
     /Encryption:/ { e=tolower($0)
                  if(e~/wpa3|sae/)enc=4; else if(e~/wpa2/)enc=3; else if(e~/wpa/)enc=2
-                 else if(e~/wep/)enc=1; else if(e~/none|open/)enc=0; else enc=0 }
+                 else if(e~/wep/)enc=1; else enc=0 }
     /Signal:/  { for(i=1;i<=NF;i++) if($i=="Signal:") sig=$(i+1) }
     END { flush() }
     '
 }
 
+HAVE_IW=0; command -v iw >/dev/null 2>&1 && HAVE_IW=1
+
 LOG "WiFi Radar"
-LOG "B: band filter   Red: exit"
+LOG "UP/DN select  Red details  B band  Power exit"
 sleep 1
 
-# background scanner: refresh the AP list ~every 2s
+# background scanner: refresh the AP list every cycle
 ( while [ ! -f "$STOP" ]; do
-    { for i in $IFACES; do iwinfo "$i" scan 2>/dev/null | parse_scan; done; } > "$DAT.tmp" 2>/dev/null
+    { for i in $IFACES; do
+        if [ "$HAVE_IW" -eq 1 ]; then iw dev "$i" scan 2>/dev/null | parse_iw
+        else iwinfo "$i" scan 2>/dev/null | parse_iwinfo; fi
+      done; } > "$DAT.tmp" 2>/dev/null
     mv "$DAT.tmp" "$DAT" 2>/dev/null
   done ) &
 SCANPID=$!
