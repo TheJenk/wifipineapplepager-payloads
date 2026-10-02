@@ -80,23 +80,25 @@ static void draw_label_int(int x,int y,const char*label,int n,uint16_t c,int sc)
 
 /* ---- blips ---- */
 #define MAXB 128
-static int b_hash[MAXB], b_sig[MAXB], b_chan[MAXB], b_enc[MAXB], b_bright[MAXB], b_age[MAXB], b_used[MAXB], b_seen[MAXB];
+static int b_hash[MAXB], b_sig[MAXB], b_chan[MAXB], b_enc[MAXB], b_band[MAXB], b_bright[MAXB], b_age[MAXB], b_used[MAXB], b_seen[MAXB];
 static char b_ssid[MAXB][SSID_MAX+1], b_bssid[MAXB][BSSID_MAX+1];
 static int nblip;
 
 static int blip_find(int h){ for(int i=0;i<nblip;i++) if(b_used[i]&&b_hash[i]==h) return i; return -1; }
 static void cpystr(char*d,const char*s,int max){ int k=0; if(s) while(s[k]&&k<max){ char c=s[k]; if(c<32||c>126)c='?'; d[k]=c; k++;} d[k]=0; }
-static void blip_upsert(int h,int sig,int chan,int enc,const char*bssid,const char*ssid){
+static void blip_upsert(int h,int sig,int chan,int enc,int band,const char*bssid,const char*ssid){
     int i=blip_find(h);
     if(i<0){ if(nblip>=MAXB) return; i=nblip++; b_hash[i]=h; b_bright[i]=120; }
-    b_sig[i]=sig; b_chan[i]=chan; b_enc[i]=enc; b_age[i]=0; b_used[i]=1; b_seen[i]=1;
+    b_sig[i]=sig; b_chan[i]=chan; b_enc[i]=enc; b_band[i]=band; b_age[i]=0; b_used[i]=1; b_seen[i]=1;
     cpystr(b_bssid[i],bssid,BSSID_MAX);
     cpystr(b_ssid[i],ssid,SSID_MAX);
     if(b_ssid[i][0]==0){ cpystr(b_ssid[i],"<hidden>",SSID_MAX); }
 }
 static int radius_of(int sig){ int f=((sig-RSSI_WEAK)*100)/(RSSI_STRONG-RSSI_WEAK); if(f<0)f=0; if(f>100)f=100; return RR-(RR*f)/100; }
 static int quality_of(int sig){ int f=((sig-RSSI_WEAK)*100)/(RSSI_STRONG-RSSI_WEAK); if(f<0)f=0; if(f>100)f=100; return f; }
-static int freq_of(int ch){ if(ch<=14){ return ch==14?2484:2407+ch*5; } return 5000+ch*5; }
+static int freq_of(int band,int ch){ if(band==0){ return ch==14?2484:2407+ch*5; } if(band==2){ return 5950+ch*5; } return 5000+ch*5; }
+/* blip colour by band (brightness br); open networks are flagged red elsewhere */
+static uint16_t band_rgb(int band,int br){ return band==0?rgb(br/5,br,br/3): band==1?rgb(br/4,br,br): rgb(br,br/4,br); }
 static const char* enc_name(int e){ return e==0?"OPEN":e==1?"WEP":e==2?"WPA":e==3?"WPA2":"WPA3"; }
 static const char* qual_word(int q){ return q>=75?"STRONG":q>=50?"GOOD":q>=25?"FAIR":"WEAK"; }
 
@@ -141,11 +143,12 @@ static void load_scan(void){
     for(int i=0;i<nblip;i++) b_seen[i]=0;
     const char*p=fbuf;
     while(*p){
-        int h=rd_int(&p),sig=rd_int(&p),chan=rd_int(&p),enc=rd_int(&p);
+        int h=rd_int(&p),sig=rd_int(&p),chan=rd_int(&p),enc=rd_int(&p),band=rd_int(&p);
         char bssid[BSSID_MAX+1]; rd_tok(&p,bssid,BSSID_MAX);
         char ssid[SSID_MAX+1]; int k=0; if(*p==' ')p++;
         while(*p&&*p!='\n'&&k<SSID_MAX) ssid[k++]=*p++; ssid[k]=0;
-        if(h!=-99999&&sig!=-99999&&chan!=-99999&&h>=0) blip_upsert(h&1023,sig,chan,enc<0?0:enc,bssid,ssid);
+        if(band<0||band>2) band = chan<=14?0:1;    /* fallback if missing */
+        if(h!=-99999&&sig!=-99999&&chan!=-99999&&h>=0) blip_upsert(h&1023,sig,chan,enc<0?0:enc,band,bssid,ssid);
         while(*p&&*p!='\n')p++; if(*p)p++;
     }
     for(int i=0;i<nblip;i++) if(b_used[i]&&!b_seen[i]){ if(++b_age[i]>2) b_used[i]=0; }
@@ -157,7 +160,7 @@ static void poll_input(int fd){
         if(type==1&&val==1){
             if(code==K_POWER) want_exit=1;
             else if(code==K_BTNA) act_press=1;              /* Red: open / back */
-            else if(code==K_BTNB){ if(view==0) band_filter=(band_filter+1)%3; else act_press=1; }
+            else if(code==K_BTNB){ if(view==0) band_filter=(band_filter+1)%4; else act_press=1; }
             else if(code==K_UP||code==K_LEFT) sel_delta--;
             else if(code==K_DOWN||code==K_RIGHT) sel_delta++;
         } }
@@ -165,10 +168,11 @@ static void poll_input(int fd){
 #endif
 
 static int vis[MAXB], nvis;
-static void build_visible(int bandf){ nvis=0;
-    for(int i=0;i<nblip;i++){ if(!b_used[i])continue; int is24=b_chan[i]<=14;
-        if(bandf==1&&!is24)continue; if(bandf==2&&is24)continue; vis[nvis++]=i; } }
-static const char* band_name(int bf){ return bf==0?"ALL":bf==1?"2.4G":"5G"; }
+static void build_visible(int bandf){ nvis=0;   /* bandf: 0 all,1 2.4,2 5,3 6 */
+    for(int i=0;i<nblip;i++){ if(!b_used[i])continue;
+        if(bandf!=0 && b_band[i]!=(bandf-1)) continue; vis[nvis++]=i; } }
+static const char* band_name(int bf){ return bf==0?"ALL":bf==1?"2.4G":bf==2?"5G":"6G"; }      /* filter name */
+static const char* band_of(int b){ return b==0?"2.4 GHZ":b==1?"5 GHZ":"6 GHZ"; }               /* ap band name */
 
 /* enc colour: open = red (insecure), else green */
 static uint16_t enc_color(int e){ return e==0?rgb(255,80,60):rgb(0,220,90); }
@@ -198,13 +202,13 @@ static void render_radar(int sweep,int bandf,int sel,int have,int pulse){
 
     build_visible(bandf);
     int selIdx = nvis? vis[(sel%nvis+nvis)%nvis] : -1;
-    for(int v=0;v<nvis;v++){ int i=vis[v]; int is24=b_chan[i]<=14, open=(b_enc[i]==0);
+    for(int v=0;v<nvis;v++){ int i=vis[v]; int open=(b_enc[i]==0);
         int ang=b_hash[i]&1023, r=radius_of(b_sig[i]);
         int bx=CX+((icos(ang)*r)>>10), by=CY+((isin(ang)*r)>>10);
         int d=ang-sweep; d&=1023; if(d>512)d=1024-d;
         if(d<14) b_bright[i]=255; else { b_bright[i]-=10; if(b_bright[i]<70)b_bright[i]=70; }
         int br=b_bright[i];
-        uint16_t c = open?rgb(br,br/4,br/5) : (is24?rgb(br/5,br,br/3):rgb(br/4,br,br));
+        uint16_t c = open?rgb(br,br/4,br/5) : band_rgb(b_band[i],br);
         if(br>150) disc(bx,by,1,rgb(200,255,200));   /* bright core */
         disc(bx,by,2,c);
         if(br>190) ring(bx,by,4,c);
@@ -216,7 +220,8 @@ static void render_radar(int sweep,int bandf,int sel,int have,int pulse){
     draw_text(PANEL_X,10,"WIFI RADAR",rgb(0,255,0),1);
     hline(PANEL_X,20,120,dim);
     { char b[28]; int i=0; const char*L="BAND "; while(*L)b[i++]=*L++; const char*bn=band_name(bandf); while(*bn)b[i++]=*bn++; b[i]=0;
-      draw_text(PANEL_X,28,b,bandf==2?rgb(0,200,200):bandf==1?rgb(0,220,80):fg,1); }
+      uint16_t bc=bandf==3?rgb(220,80,220):bandf==2?rgb(0,200,200):bandf==1?rgb(0,220,80):fg;
+      draw_text(PANEL_X,28,b,bc,1); }
     draw_label_int(PANEL_X+120,28,"",nvis,fg,1); draw_text(PANEL_X+120-18,28,"APS",dim,1);
     hline(PANEL_X,42,W-10-PANEL_X,axis);
 
@@ -250,9 +255,10 @@ static void render_detail(int idx,int pulse){
     /* SSID title (big) */
     draw_text(20,32,b_ssid[idx],wht,2);
     draw_text(20,54,"BSSID",dim,1); draw_text(70,54,b_bssid[idx],rgb(0,200,0),1);
-    int is24=b_chan[idx]<=14, f=freq_of(b_chan[idx]), q=quality_of(b_sig[idx]);
+    int f=freq_of(b_band[idx],b_chan[idx]), q=quality_of(b_sig[idx]);
     /* left column: band / channel / freq */
-    draw_text(20,74,is24?"BAND 2.4 GHZ":"BAND 5 GHZ",fg,1);
+    { char bb[16]; int i=0; const char*L="BAND "; while(*L)bb[i++]=*L++; const char*bn=band_of(b_band[idx]); while(*bn)bb[i++]=*bn++; bb[i]=0;
+      draw_text(20,74,bb,band_rgb(b_band[idx],230),1); }
     draw_label_int(20,88,"CHANNEL ",b_chan[idx],fg,1);
     draw_label_int(20,102,"FREQ ",f,fg,1); draw_text(20+6*(5+ (f>=1000?4:3)),102,"MHZ",dim,1);
     /* encryption badge */
@@ -284,14 +290,14 @@ static void dump(const char*dir,const char*name){ char p[256]; snprintf(p,sizeof
 int main(int argc,char**argv){
     if(!(argc>=3&&!strcmp(argv[1],"--preview"))){fprintf(stderr,"usage: %s --preview DIR\n",argv[0]);return 2;}
     init_sin();
-    struct{int h,s,c,e;const char*bs;const char*n;} d[]={
-        {123,-40,6,3,"A4:2B:8C:11:22:33","CoffeeShop"},{700,-62,11,0,"00:1A:2B:3C:4D:5E","xfinitywifi"},
-        {300,-75,1,2,"DE:AD:BE:EF:00:11","linksys"},{900,-50,36,3,"F0:9F:C2:AB:CD:EF","Pineapple_5"},
-        {512,-85,44,4,"12:34:56:78:9A:BC","eduroam"},{64,-33,3,3,"AA:BB:CC:DD:EE:01","MyNetwork"},
-        {820,-68,9,0,"12:AB:34:CD:56:EF","DIRECT-HP"},{210,-58,149,3,"98:76:54:32:10:AB","HOME-5G"}};
-    for(unsigned i=0;i<sizeof(d)/sizeof(d[0]);i++) blip_upsert(d[i].h,d[i].s,d[i].c,d[i].e,d[i].bs,d[i].n);
+    struct{int h,s,c,e,b;const char*bs;const char*n;} d[]={
+        {123,-40,6,3,0,"A4:2B:8C:11:22:33","CoffeeShop"},{700,-62,11,0,0,"00:1A:2B:3C:4D:5E","xfinitywifi"},
+        {300,-75,1,2,0,"DE:AD:BE:EF:00:11","linksys"},{900,-50,36,3,1,"F0:9F:C2:AB:CD:EF","Pineapple_5"},
+        {512,-85,44,4,1,"12:34:56:78:9A:BC","eduroam"},{64,-33,37,3,2,"AA:BB:CC:DD:EE:01","MyNet_6E"},
+        {820,-68,9,0,0,"12:AB:34:CD:56:EF","DIRECT-HP"},{210,-58,69,3,2,"98:76:54:32:10:AB","HOME-6G"}};
+    for(unsigned i=0;i<sizeof(d)/sizeof(d[0]);i++) blip_upsert(d[i].h,d[i].s,d[i].c,d[i].e,d[i].b,d[i].bs,d[i].n);
     render_radar(300,0,0,1,0); dump(argv[2],"r_all");
-    render_radar(500,2,1,1,1); dump(argv[2],"r_5g");
+    render_radar(500,3,0,1,1); dump(argv[2],"r_6g");
     build_visible(0); render_detail(vis[0],0); dump(argv[2],"r_detail");
     build_visible(0); render_detail(vis[6],0); dump(argv[2],"r_detail_open"); /* open net */
     return 0;
