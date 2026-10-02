@@ -153,16 +153,18 @@ static void load_scan(void){
     }
     for(int i=0;i<nblip;i++) if(b_used[i]&&!b_seen[i]){ if(++b_age[i]>2) b_used[i]=0; }
 }
-static int want_exit, band_filter, sel_delta, view, act_press;
+static int want_exit, band_filter, sel_delta, band_delta, view, act_open, act_back;
 static void poll_input(int fd){
     if(fd<0)return; unsigned char b[16];
     while(sys3(SYS_read,fd,(long)b,16)==16){ int type=b[8]|(b[9]<<8),code=b[10]|(b[11]<<8),val=b[12]|(b[13]<<8);
         if(type==1&&val==1){
             if(code==K_POWER) want_exit=1;
-            else if(code==K_BTNA) act_press=1;              /* Red: open / back */
-            else if(code==K_BTNB){ if(view==0) band_filter=(band_filter+1)%4; else act_press=1; }
-            else if(code==K_UP||code==K_LEFT) sel_delta--;
-            else if(code==K_DOWN||code==K_RIGHT) sel_delta++;
+            else if(code==K_BTNA) act_open=1;               /* Green (A): drill down */
+            else if(code==K_BTNB) act_back=1;               /* Red (B): back out */
+            else if(code==K_UP)   sel_delta++;              /* next WORSE signal (outward) */
+            else if(code==K_DOWN) sel_delta--;              /* next STRONGER signal (inward) */
+            else if(code==K_LEFT)  band_delta--;            /* prev band */
+            else if(code==K_RIGHT) band_delta++;            /* next band */
         } }
 }
 #endif
@@ -170,7 +172,9 @@ static void poll_input(int fd){
 static int vis[MAXB], nvis;
 static void build_visible(int bandf){ nvis=0;   /* bandf: 0 all,1 2.4,2 5,3 6 */
     for(int i=0;i<nblip;i++){ if(!b_used[i])continue;
-        if(bandf!=0 && b_band[i]!=(bandf-1)) continue; vis[nvis++]=i; } }
+        if(bandf!=0 && b_band[i]!=(bandf-1)) continue; vis[nvis++]=i; }
+    /* sort visible by signal, strongest first (index 0 = strongest) */
+    for(int a=0;a<nvis;a++) for(int b=a+1;b<nvis;b++) if(b_sig[vis[b]]>b_sig[vis[a]]){ int t=vis[a];vis[a]=vis[b];vis[b]=t; } }
 static const char* band_name(int bf){ return bf==0?"ALL":bf==1?"2.4G":bf==2?"5G":"6G"; }      /* filter name */
 static const char* band_of(int b){ return b==0?"2.4 GHZ":b==1?"5 GHZ":"6 GHZ"; }               /* ap band name */
 
@@ -191,8 +195,11 @@ static void render_radar(int sweep,int bandf,int sel,int have,int pulse){
     /* range rings + dBm labels */
     ring(CX,CY,RR,grid); ring(CX,CY,(RR*2)/3,axis); ring(CX,CY,RR/3,axis);
     line(CX-RR,CY,CX+RR,CY,axis); line(CX,CY-RR,CX,CY+RR,axis);
-    draw_text(CX+2,CY-RR-9,"-30",rgb(0,80,0),1);
-    draw_text(CX+2,CY-(RR*2)/3-9,"-50",rgb(0,70,0),1);
+    /* ring dBm labels: centre = strongest (-30), edge = weakest (-90) */
+    draw_text(CX+3,CY-RR+1,"-90",rgb(0,70,0),1);
+    draw_text(CX+3,CY-(RR*2)/3+1,"-70",rgb(0,70,0),1);
+    draw_text(CX+3,CY-RR/3+1,"-50",rgb(0,70,0),1);
+    draw_text(CX+3,CY-9,"-30",rgb(0,90,0),1);
     /* outer tick marks */
     for(int a=0;a<1024;a+=64){ int x0=CX+((icos(a)*RR)>>10),y0=CY+((isin(a)*RR)>>10);
         int x1=CX+((icos(a)*(RR-4))>>10),y1=CY+((isin(a)*(RR-4))>>10); line(x0,y0,x1,y1,grid); }
@@ -201,7 +208,8 @@ static void render_radar(int sweep,int bandf,int sel,int have,int pulse){
         line(CX,CY, CX+((icos(a)*RR)>>10), CY+((isin(a)*RR)>>10), rgb(0,sh+40,0)); }
 
     build_visible(bandf);
-    int selIdx = nvis? vis[(sel%nvis+nvis)%nvis] : -1;
+    if(sel<0)sel=0; if(sel>=nvis)sel=nvis-1;
+    int selIdx = nvis? vis[sel] : -1;
     for(int v=0;v<nvis;v++){ int i=vis[v]; int open=(b_enc[i]==0);
         int ang=b_hash[i]&1023, r=radius_of(b_sig[i]);
         int bx=CX+((icos(ang)*r)>>10), by=CY+((isin(ang)*r)>>10);
@@ -238,8 +246,8 @@ static void render_radar(int sweep,int bandf,int sel,int have,int pulse){
         draw_text(PANEL_X+96,104,qual_word(q),fg,1);
         draw_signal_bar(PANEL_X,124,180,12,q,axis);
         hline(PANEL_X,150,W-10-PANEL_X,axis);
-        draw_text(PANEL_X,158,"UP/DN SELECT",dim,1);
-        draw_text(PANEL_X,170,"RED DETAILS  B BAND",dim,1);
+        draw_text(PANEL_X,158,"UP/DN SIGNAL  L/R BAND",dim,1);
+        draw_text(PANEL_X,170,"GRN DETAIL  RED BACK",dim,1);
         draw_text(PANEL_X,182,"POWER EXIT",dim,1);
     }
     brackets(4,4,W-9,H-9,8,rgb(0,90,0));
@@ -275,7 +283,7 @@ static void render_detail(int idx,int pulse){
     draw_text(gx-18,gy+6,qual_word(q),fg,2);
     /* footer */
     hline(20,H-24,W-40,dim);
-    draw_text(20,H-18,"RED / B  BACK      POWER EXIT",dim,1);
+    draw_text(20,H-18,"RED BACK      POWER EXIT",dim,1);
     (void)pulse;
 }
 
@@ -308,14 +316,16 @@ int main(void){
     int fb=(int)sys3(SYS_open,(long)"/dev/fb0",O_RDWR,0); if(fb<0)return 1;
     int ev=(int)sys3(SYS_open,(long)"/dev/input/event0",O_RDONLY|O_NONBLOCK,0);
     struct ts req; req.sec=0; req.nsec=50000000;
-    int sweep=0,frame=0,sel=0; want_exit=0; band_filter=0; sel_delta=0; view=0; act_press=0; have_data=0;
+    int sweep=0,frame=0,sel=0; want_exit=0; band_filter=0; sel_delta=0; band_delta=0; view=0; act_open=0; act_back=0; have_data=0;
     while(!want_exit){
         if((frame%20)==0) load_scan();
+        if(band_delta){ band_filter=(band_filter+band_delta)%4; if(band_filter<0)band_filter+=4; band_delta=0; sel=0; }
         sel+=sel_delta; sel_delta=0;
         build_visible(band_filter);
-        int selIdx = nvis? vis[(sel%nvis+nvis)%nvis] : -1;
-        if(act_press){ act_press=0;
-            if(view==0){ if(selIdx>=0) view=1; } else view=0; }
+        if(sel<0)sel=0; if(sel>=nvis)sel=nvis-1;
+    int selIdx = nvis? vis[sel] : -1;
+        if(act_open){ act_open=0; if(view==0 && selIdx>=0) view=1; }      /* Green: drill in */
+        if(act_back){ act_back=0; if(view==1) view=0; else want_exit=1; } /* Red: back / exit */
         if(view==1 && selIdx<0) view=0;            /* nothing to show */
         if(view==0) render_radar(sweep,band_filter,sel,have_data,frame);
         else        render_detail(selIdx,frame);

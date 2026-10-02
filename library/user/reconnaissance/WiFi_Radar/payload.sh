@@ -2,7 +2,7 @@
 # Title: WiFi Radar
 # Author: Jenx
 # Description: A 20fps framebuffer radar scope of nearby Wi-Fi APs. A rotating sweep plots each AP as a blip - angle is stable per BSSID, radius is signal (stronger = centre), colour is band (green 2.4 / cyan 5 GHz); blips flash as the sweep passes and fade with age. Up/Down select a blip, Red opens a recon detail card, B cycles band filter, Power exits. Read-only.
-# Version: 1.4
+# Version: 1.5
 # Category: reconnaissance
 
 # ---------------------------------------------------------------------------
