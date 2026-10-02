@@ -2,7 +2,7 @@
 # Title: WiFi Radar
 # Author: Jenx
 # Description: A 20fps framebuffer radar scope of nearby Wi-Fi APs. A rotating sweep plots each AP as a blip - angle is stable per BSSID, radius is signal (stronger = centre), colour is band (green 2.4 / cyan 5 GHz); blips flash as the sweep passes and fade with age. Up/Down select a blip, Red opens a recon detail card, B cycles band filter, Power exits. Read-only.
-# Version: 1.3
+# Version: 1.4
 # Category: reconnaissance
 
 # ---------------------------------------------------------------------------
@@ -30,10 +30,20 @@ DAT=/tmp/radar.dat
 STOP=/tmp/radar.stop
 rm -f "$STOP"
 
-# interfaces to scan
-IFACES=""
-for i in wlan0cli wlan1cli; do [ -e "/sys/class/net/$i" ] && IFACES="$IFACES $i"; done
-[ -z "$IFACES" ] && IFACES="wlan0cli"
+# Scan interface. The 5/6 GHz radio (phy1) is a tri-band 6E part but is only
+# exposed as a monitor iface (wlan1mon). We add a temporary managed vif on phy1
+# to actively scan ALL bands (2.4/5/6) at once, and remove it on exit. If that
+# fails, fall back to the 2.4 GHz client iface wlan0cli.
+SCANIF=""
+SCANVIF=""
+if command -v iw >/dev/null 2>&1; then
+    iw dev wlan1scan del >/dev/null 2>&1               # clear any stale one
+    if iw phy phy1 interface add wlan1scan type managed >/dev/null 2>&1; then
+        ip link set wlan1scan up >/dev/null 2>&1
+        SCANIF="wlan1scan"; SCANVIF="wlan1scan"
+    fi
+fi
+[ -z "$SCANIF" ] && { [ -e /sys/class/net/wlan0cli ] && SCANIF="wlan0cli" || SCANIF="wlan0cli"; }
 
 # emits "hash signal channel enc band bssid ssid"  (band 0=2.4 1=5 2=6)
 
@@ -93,15 +103,17 @@ sleep 1
 
 # background scanner: refresh the AP list every cycle
 ( while [ ! -f "$STOP" ]; do
-    { for i in $IFACES; do
-        if [ "$HAVE_IW" -eq 1 ]; then iw dev "$i" scan 2>/dev/null | parse_iw
-        else iwinfo "$i" scan 2>/dev/null | parse_iwinfo; fi
-      done; } > "$DAT.tmp" 2>/dev/null
+    if [ "$HAVE_IW" -eq 1 ]; then iw dev "$SCANIF" scan 2>/dev/null | parse_iw > "$DAT.tmp" 2>/dev/null
+    else iwinfo "$SCANIF" scan 2>/dev/null | parse_iwinfo > "$DAT.tmp" 2>/dev/null; fi
     mv "$DAT.tmp" "$DAT" 2>/dev/null
   done ) &
 SCANPID=$!
 
-cleanup() { touch "$STOP" 2>/dev/null; kill "$SCANPID" 2>/dev/null; UI_RELEASE 2>/dev/null; rm -f "$DAT" "$STOP" 2>/dev/null; }
+cleanup() {
+    touch "$STOP" 2>/dev/null; kill "$SCANPID" 2>/dev/null
+    [ -n "$SCANVIF" ] && { ip link set "$SCANVIF" down 2>/dev/null; iw dev "$SCANVIF" del 2>/dev/null; }
+    UI_RELEASE 2>/dev/null; rm -f "$DAT" "$STOP" 2>/dev/null
+}
 trap cleanup EXIT INT TERM
 
 UI_TAKEOVER 2>/dev/null
