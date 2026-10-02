@@ -80,7 +80,9 @@ static void draw_label_int(int x,int y,const char*label,int n,uint16_t c,int sc)
 
 /* ---- blips ---- */
 #define MAXB 128
-static int b_hash[MAXB], b_sig[MAXB], b_chan[MAXB], b_enc[MAXB], b_band[MAXB], b_bright[MAXB], b_age[MAXB], b_used[MAXB], b_seen[MAXB];
+static int b_hash[MAXB], b_sig[MAXB], b_chan[MAXB], b_enc[MAXB], b_band[MAXB], b_bright[MAXB], b_last[MAXB], b_used[MAXB];
+static int g_frame;                 /* frame clock for last-seen timing */
+#define SEEN_TIMEOUT 300            /* keep a blip ~15s (at 20fps) after last seen */
 static char b_ssid[MAXB][SSID_MAX+1], b_bssid[MAXB][BSSID_MAX+1];
 static int nblip;
 
@@ -89,7 +91,7 @@ static void cpystr(char*d,const char*s,int max){ int k=0; if(s) while(s[k]&&k<ma
 static void blip_upsert(int h,int sig,int chan,int enc,int band,const char*bssid,const char*ssid){
     int i=blip_find(h);
     if(i<0){ if(nblip>=MAXB) return; i=nblip++; b_hash[i]=h; b_bright[i]=120; }
-    b_sig[i]=sig; b_chan[i]=chan; b_enc[i]=enc; b_band[i]=band; b_age[i]=0; b_used[i]=1; b_seen[i]=1;
+    b_sig[i]=sig; b_chan[i]=chan; b_enc[i]=enc; b_band[i]=band; b_last[i]=g_frame; b_used[i]=1;
     cpystr(b_bssid[i],bssid,BSSID_MAX);
     cpystr(b_ssid[i],ssid,SSID_MAX);
     if(b_ssid[i][0]==0){ cpystr(b_ssid[i],"<hidden>",SSID_MAX); }
@@ -140,7 +142,6 @@ static void load_scan(void){
     int fd=(int)sys3(SYS_open,(long)"/tmp/radar.dat",O_RDONLY,0); if(fd<0)return;
     long n=sys3(SYS_read,fd,(long)fbuf,sizeof(fbuf)-1); sys3(SYS_close,fd,0,0);
     if(n<0)return; fbuf[n]=0; have_data=1;
-    for(int i=0;i<nblip;i++) b_seen[i]=0;
     const char*p=fbuf;
     while(*p){
         int h=rd_int(&p),sig=rd_int(&p),chan=rd_int(&p),enc=rd_int(&p),band=rd_int(&p);
@@ -151,7 +152,8 @@ static void load_scan(void){
         if(h!=-99999&&sig!=-99999&&chan!=-99999&&h>=0) blip_upsert(h&1023,sig,chan,enc<0?0:enc,band,bssid,ssid);
         while(*p&&*p!='\n')p++; if(*p)p++;
     }
-    for(int i=0;i<nblip;i++) if(b_used[i]&&!b_seen[i]){ if(++b_age[i]>2) b_used[i]=0; }
+    /* hysteresis: only drop a blip after it's been unseen for SEEN_TIMEOUT */
+    for(int i=0;i<nblip;i++) if(b_used[i] && (g_frame-b_last[i])>SEEN_TIMEOUT) b_used[i]=0;
 }
 static int want_exit, band_filter, sel_delta, band_delta, view, act_open, act_back;
 static void poll_input(int fd){
@@ -316,13 +318,18 @@ int main(void){
     int fb=(int)sys3(SYS_open,(long)"/dev/fb0",O_RDWR,0); if(fb<0)return 1;
     int ev=(int)sys3(SYS_open,(long)"/dev/input/event0",O_RDONLY|O_NONBLOCK,0);
     struct ts req; req.sec=0; req.nsec=50000000;
-    int sweep=0,frame=0,sel=0; want_exit=0; band_filter=0; sel_delta=0; band_delta=0; view=0; act_open=0; act_back=0; have_data=0;
+    int sweep=0,frame=0,sel=0,sel_hash=-1; want_exit=0; band_filter=0; sel_delta=0; band_delta=0; view=0; act_open=0; act_back=0; have_data=0;
     while(!want_exit){
+        g_frame=frame;
         if((frame%20)==0) load_scan();
-        if(band_delta){ band_filter=(band_filter+band_delta)%4; if(band_filter<0)band_filter+=4; band_delta=0; sel=0; }
-        sel+=sel_delta; sel_delta=0;
+        if(band_delta){ band_filter=(band_filter+band_delta)%4; if(band_filter<0)band_filter+=4; band_delta=0; sel=0; sel_hash=-1; }
         build_visible(band_filter);
+        /* keep the selection glued to the chosen network (by hash) across re-sorts
+         * and brief disappearances; then apply the user's up/down movement */
+        if(sel_hash>=0){ for(int i=0;i<nvis;i++) if(b_hash[vis[i]]==sel_hash){ sel=i; break; } }
+        sel+=sel_delta; sel_delta=0;
         if(sel<0)sel=0; if(sel>=nvis)sel=nvis-1;
+        if(nvis>0) sel_hash=b_hash[vis[sel]]; else sel_hash=-1;
     int selIdx = nvis? vis[sel] : -1;
         if(act_open){ act_open=0; if(view==0 && selIdx>=0) view=1; }      /* Green: drill in */
         if(act_back){ act_back=0; if(view==1) view=0; else want_exit=1; } /* Red: back / exit */
