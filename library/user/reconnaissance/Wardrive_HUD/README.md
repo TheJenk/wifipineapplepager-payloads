@@ -12,8 +12,21 @@ HUD with a rotating **compass rose** + heading, a big **speed** readout, live
 
 ## Controls
 - **Left / Right** — cycle speed units (MPH / KMH / KN); distance follows (mi/km)
-- **Green (A)** — reset the trip (zeroes "new this trip" APs and trip distance)
-- **Red (B) / Power** — exit
+- **Green (A)** — reset the **trip meters** (zeroes "new this trip" APs + trip
+  distance only; the session total, the seen-AP set and the WiGLE log all keep going)
+- **Red (B)** — exit
+- **Power** — display sleep (press again / any button to wake); the HUD keeps running
+
+## WiGLE logging
+Every AP is logged **first-seen**, stamped with the GPS fix where it was first
+heard, to a **WigleWifi-1.4 CSV** at `/root/loot/wardrive/wardrive-<timestamp>.csv`
+(one session per file; survives exit). Columns: `MAC,SSID,AuthMode,FirstSeen,
+Channel,RSSI,CurrentLatitude,CurrentLongitude,AltitudeMeters,AccuracyMeters,Type`.
+An AP is only written once there's a GPS fix (mode ≥ 2D) — so a network heard
+before lock is counted on the HUD and logged the next time it's seen with a
+position. Pull the file off over SCP/USB and drop it into **wigle.net**'s upload
+page. The HUD's "ACCESS POINTS" total counts every unique BSSID regardless of
+fix; the per-exit log line reports how many made it into the CSV.
 
 ## Requirements
 A **USB GPS** and the gpsd tools (`gpspipe`). The payload **auto-installs** gpsd
