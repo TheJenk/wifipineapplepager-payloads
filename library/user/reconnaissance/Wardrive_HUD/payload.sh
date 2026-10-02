@@ -117,7 +117,8 @@ GPSPID=$!
     if [ -f "$RESET" ]; then apbase=$total; distbase=$cum; rm -f "$RESET"; fi
     apnew=$((total - apbase)); [ "$apnew" -lt 0 ] && apnew=0
     dist=$((cum - distbase)); [ "$dist" -lt 0 ] && dist=0
-    echo "${mode:-0} ${spd:-0} ${hdg:-0} ${sats:-0} ${le:-0} ${lo:-0} $total $apnew $dist" > "$DAT.tmp"
+    wig=0; [ -n "$WLOG" ] && [ -f "$WLOG" ] && wig=1
+    echo "${mode:-0} ${spd:-0} ${hdg:-0} ${sats:-0} ${le:-0} ${lo:-0} $total $apnew $dist $wig" > "$DAT.tmp"
     mv "$DAT.tmp" "$DAT" 2>/dev/null
     sleep 1
   done ) &

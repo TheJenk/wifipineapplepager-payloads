@@ -47,7 +47,7 @@ static void draw_hdg(int x,int y,int h,uint16_t c,int sc){char b[4];b[0]='0'+(h/
 static void draw_e5(int x,int y,int e5,uint16_t c){char b[20];int i=0;if(e5<0){b[i++]='-';e5=-e5;}int ip=e5/100000,fp=e5%100000;i+=itoa_(ip,b+i);b[i++]='.';b[i++]='0'+(fp/10000)%10;b[i++]='0'+(fp/1000)%10;b[i++]='0'+(fp/100)%10;b[i++]='0'+(fp/10)%10;b[i++]='0'+fp%10;b[i]=0;draw_text(x,y,b,c,1);}
 
 /* state from /tmp/wardrive.dat */
-static int g_mode,g_spd10,g_hdg,g_sats,g_late5,g_lone5,g_ap,g_apnew,g_dist;
+static int g_mode,g_spd10,g_hdg,g_sats,g_late5,g_lone5,g_ap,g_apnew,g_dist,g_wig;
 static int units=0;   /* 0 mph, 1 kmh, 2 kn */
 static int have=0;
 
@@ -79,6 +79,9 @@ static void render(void){
     uint16_t fg=rgb(0,220,0), dim=rgb(0,110,0), axis=rgb(0,55,0), wht=rgb(255,255,255), amber=rgb(255,180,0);
     brackets(3,3,W-7,H-7,9,rgb(0,90,0));
     draw_text(10,7,"WARDRIVE HUD",rgb(0,255,0),1);
+    /* stock WiGLE logger status */
+    if(g_wig){ disc(92,10,2,rgb(0,230,0)); draw_text(98,7,"WIGLE LOG",rgb(0,200,0),1); }
+    else { disc(92,10,2,rgb(230,60,40)); draw_text(98,7,"WIGLE OFF",rgb(200,70,50),1); }
 
     /* GPS fix status (top-right) */
     uint16_t fc = g_mode>=3?rgb(0,230,0):g_mode==2?rgb(230,200,0):rgb(230,60,40);
@@ -98,7 +101,7 @@ static void render(void){
 
     /* AP discovery counters (right, boxed odometer) */
     box(326,40,146,64,axis);
-    draw_text(334,45,"ACCESS POINTS",dim,1);
+    draw_text(334,45,"APS LOGGED",dim,1);
     draw_int(334,55,g_ap,rgb(0,255,120),4);
     draw_text(334,92,"NEW",dim,1);
     { char b[12]; b[0]='+'; itoa_(g_apnew,b+1); draw_text(356,90,b,amber,2); }
@@ -153,8 +156,8 @@ static int rd_int(const char**p){const char*s=*p;int v=0,any=0,sign=1;while(*s==
 static void load_data(void){
     int fd=(int)sys3(SYS_open,(long)"/tmp/wardrive.dat",O_RDONLY,0); if(fd<0)return;
     long n=sys3(SYS_read,fd,(long)fbuf,sizeof(fbuf)-1); sys3(SYS_close,fd,0,0); if(n<=0)return; fbuf[n]=0;
-    const char*p=fbuf; int m=rd_int(&p),sp=rd_int(&p),hd=rd_int(&p),st=rd_int(&p),la=rd_int(&p),lo=rd_int(&p),ap=rd_int(&p),apn=rd_int(&p),ds=rd_int(&p);
-    if(m!=-999999){g_mode=m;g_spd10=sp;g_hdg=((hd%360)+360)%360;g_sats=st;g_late5=la;g_lone5=lo;g_ap=ap<0?0:ap;g_apnew=apn<0?0:apn;g_dist=ds<0?0:ds;have=1;}
+    const char*p=fbuf; int m=rd_int(&p),sp=rd_int(&p),hd=rd_int(&p),st=rd_int(&p),la=rd_int(&p),lo=rd_int(&p),ap=rd_int(&p),apn=rd_int(&p),ds=rd_int(&p),wg=rd_int(&p);
+    if(m!=-999999){g_mode=m;g_spd10=sp;g_hdg=((hd%360)+360)%360;g_sats=st;g_late5=la;g_lone5=lo;g_ap=ap<0?0:ap;g_apnew=apn<0?0:apn;g_dist=ds<0?0:ds;g_wig=wg>0?1:0;have=1;}
 }
 static void write_reset(void){ int fd=(int)sys3(SYS_open,(long)"/tmp/wardrive.reset",O_WRONLY|O_CREAT|O_TRUNC,0644); if(fd>=0){sys3(SYS_write,fd,(long)"1",1);sys3(SYS_close,fd,0,0);} }
 static int want_exit; static int u_l,u_r,a_d,b_d;
@@ -185,7 +188,7 @@ int main(void){
 int main(int argc,char**argv){
     if(!(argc>=3&&!strcmp(argv[1],"--preview"))){fprintf(stderr,"usage: %s --preview DIR\n",argv[0]);return 2;}
     init_sin();
-    g_mode=3; g_spd10=142; g_hdg=45; g_sats=9; g_late5=3742123; g_lone5=-12208456; g_ap=1287; g_apnew=37; g_dist=8450; have=1;
+    g_mode=3; g_spd10=142; g_hdg=45; g_sats=9; g_late5=3742123; g_lone5=-12208456; g_ap=1287; g_apnew=37; g_dist=8450; g_wig=1; have=1;
     units=0; render(); { char p[256]; snprintf(p,sizeof p,"%s/hud_mph.raw",argv[2]); int fd=open(p,O_WRONLY|O_CREAT|O_TRUNC,0644); if(fd>=0){if(write(fd,framebuf,FRAME_BYTES)){}close(fd);} fprintf(stderr,"wrote %s\n",p);}
     units=1; g_hdg=200; g_spd10=250; render(); { char p[256]; snprintf(p,sizeof p,"%s/hud_kmh.raw",argv[2]); int fd=open(p,O_WRONLY|O_CREAT|O_TRUNC,0644); if(fd>=0){if(write(fd,framebuf,FRAME_BYTES)){}close(fd);}}
     g_mode=0; have=1; render(); { char p[256]; snprintf(p,sizeof p,"%s/hud_nofix.raw",argv[2]); int fd=open(p,O_WRONLY|O_CREAT|O_TRUNC,0644); if(fd>=0){if(write(fd,framebuf,FRAME_BYTES)){}close(fd);}}
