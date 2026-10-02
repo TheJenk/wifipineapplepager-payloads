@@ -142,8 +142,9 @@ static void render(void){
 #define K_LEFT 105
 #define K_RIGHT 106
 #define K_POWER 116
-#define K_BTNA 304
-#define K_BTNB 305
+/* Device emits Red=304, Green=305 (opposite of usual BTN_SOUTH/EAST). */
+#define K_BTNA 305   /* physical GREEN */
+#define K_BTNB 304   /* physical RED */
 static long sys3(long n,long a,long b,long c){register long r2 asm("$2")=n,r4 asm("$4")=a,r5 asm("$5")=b,r6 asm("$6")=c,r7 asm("$7")=0;asm volatile("syscall":"+r"(r2),"+r"(r7):"r"(r4),"r"(r5),"r"(r6):"$1","$3","$8","$9","$10","$11","$12","$13","$14","$15","$24","$25","memory");return r7?-r2:r2;}
 asm(".text\n.globl _start\n.ent _start\n_start:\n jal main\n nop\n move $4,$2\n li $2,4246\n syscall\n nop\n.end _start\n");
 struct ts{long sec;long nsec;};
@@ -157,7 +158,7 @@ static void load_data(void){
 }
 static void write_reset(void){ int fd=(int)sys3(SYS_open,(long)"/tmp/wardrive.reset",O_WRONLY|O_CREAT|O_TRUNC,0644); if(fd>=0){sys3(SYS_write,fd,(long)"1",1);sys3(SYS_close,fd,0,0);} }
 static int want_exit; static int u_l,u_r,a_d,b_d;
-static void poll_input(int fd){if(fd<0)return;unsigned char b[16];while(sys3(SYS_read,fd,(long)b,16)==16){int type=b[8]|(b[9]<<8),code=b[10]|(b[11]<<8),val=b[12]|(b[13]<<8);if(type==1&&val==1){if(code==K_LEFT)u_l++;else if(code==K_RIGHT)u_r++;else if(code==K_BTNA)a_d++;else if(code==K_BTNB||code==K_POWER)want_exit=1;}}}
+static void poll_input(int fd){if(fd<0)return;unsigned char b[16];while(sys3(SYS_read,fd,(long)b,16)==16){int type=b[8]|(b[9]<<8),code=b[10]|(b[11]<<8),val=b[12]|(b[13]<<8);if(type==1&&val==1){if(code==K_LEFT)u_l++;else if(code==K_RIGHT)u_r++;else if(code==K_BTNA)a_d++;else if(code==K_BTNB)want_exit=1;}}} /* Power left for system display-sleep */
 int main(void){
     init_sin(); units=0; want_exit=0;
     int fb=(int)sys3(SYS_open,(long)"/dev/fb0",O_RDWR,0); if(fb<0)return 1;
