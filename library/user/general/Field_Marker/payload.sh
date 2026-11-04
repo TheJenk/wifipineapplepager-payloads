@@ -25,7 +25,8 @@ SLOTS="$DATADIR/slots.conf"
 touch "$LABELS"
 
 new_label() {
-    local t; t="$(TEXT_PICKER 'New label (e.g. Security camera)')" || return
+    # TEXT_PICKER needs a default-text 2nd arg or it won't open the keyboard
+    local t; t="$(TEXT_PICKER 'New label name' '')" || return
     [ -z "$t" ] && return
     t="${t//,/ }"                          # commas break the CSV
     grep -qxF "$t" "$LABELS" || printf '%s\n' "$t" >> "$LABELS"
