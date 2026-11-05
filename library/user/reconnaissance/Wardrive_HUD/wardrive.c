@@ -48,6 +48,8 @@ static void draw_e5(int x,int y,int e5,uint16_t c){char b[20];int i=0;if(e5<0){b
 
 /* state from /tmp/wardrive.dat */
 static int g_mode,g_spd10,g_hdg,g_sats,g_late5,g_lone5,g_ap,g_apnew,g_dist,g_wig;
+static int g_flock,g_falert;   /* flock hit count; seconds the warning stays up (0=off) */
+static int g_frame;            /* frame counter, for blinking the warning */
 static int units=0;   /* 0 mph, 1 kmh, 2 kn */
 static int have=0;
 
@@ -82,6 +84,9 @@ static void render(void){
     /* stock WiGLE logger status */
     if(g_wig){ disc(92,10,2,rgb(0,230,0)); draw_text(98,7,"WIGLE LOG",rgb(0,200,0),1); }
     else { disc(92,10,2,rgb(230,60,40)); draw_text(98,7,"WIGLE OFF",rgb(200,70,50),1); }
+    /* persistent Flock tally (always visible) */
+    draw_text(176,7,"FLK",dim,1);
+    draw_int(200,7,g_flock, g_flock>0?rgb(255,90,40):dim,1);
 
     /* GPS fix status (top-right) */
     uint16_t fc = g_mode>=3?rgb(0,230,0):g_mode==2?rgb(230,200,0):rgb(230,60,40);
@@ -123,6 +128,15 @@ static void render(void){
     draw_text(330,202,"GRN RST  L/R UNIT  RED EXIT",dim,1);
 
     if(!have || g_mode<2){ draw_text(206,150,"ACQUIRING GPS...",amber,1); }
+
+    /* FLOCK DETECTED warning - overlays the HUD, blinks while active */
+    if(g_falert>0 && ((g_frame/3)&1)){
+        uint16_t yellow=rgb(235,185,0), black=rgb(0,0,0);
+        fillrect(58,78,364,60,yellow);
+        box(58,78,364,60,black); box(60,80,360,56,black);
+        draw_text(112,92,"FLOCK DETECTED",black,3);
+        draw_text(150,124,"ALPR CAMERA NEARBY",rgb(40,25,0),1);
+    }
 }
 
 /* ===================================================================== */
@@ -156,8 +170,8 @@ static int rd_int(const char**p){const char*s=*p;int v=0,any=0,sign=1;while(*s==
 static void load_data(void){
     int fd=(int)sys3(SYS_open,(long)"/tmp/wardrive.dat",O_RDONLY,0); if(fd<0)return;
     long n=sys3(SYS_read,fd,(long)fbuf,sizeof(fbuf)-1); sys3(SYS_close,fd,0,0); if(n<=0)return; fbuf[n]=0;
-    const char*p=fbuf; int m=rd_int(&p),sp=rd_int(&p),hd=rd_int(&p),st=rd_int(&p),la=rd_int(&p),lo=rd_int(&p),ap=rd_int(&p),apn=rd_int(&p),ds=rd_int(&p),wg=rd_int(&p);
-    if(m!=-999999){g_mode=m;g_spd10=sp;g_hdg=((hd%360)+360)%360;g_sats=st;g_late5=la;g_lone5=lo;g_ap=ap<0?0:ap;g_apnew=apn<0?0:apn;g_dist=ds<0?0:ds;g_wig=wg>0?1:0;have=1;}
+    const char*p=fbuf; int m=rd_int(&p),sp=rd_int(&p),hd=rd_int(&p),st=rd_int(&p),la=rd_int(&p),lo=rd_int(&p),ap=rd_int(&p),apn=rd_int(&p),ds=rd_int(&p),wg=rd_int(&p),fk=rd_int(&p),fa=rd_int(&p);
+    if(m!=-999999){g_mode=m;g_spd10=sp;g_hdg=((hd%360)+360)%360;g_sats=st;g_late5=la;g_lone5=lo;g_ap=ap<0?0:ap;g_apnew=apn<0?0:apn;g_dist=ds<0?0:ds;g_wig=wg>0?1:0;g_flock=fk<0?0:fk;g_falert=fa<0?0:fa;have=1;}
 }
 static void write_reset(void){ int fd=(int)sys3(SYS_open,(long)"/tmp/wardrive.reset",O_WRONLY|O_CREAT|O_TRUNC,0644); if(fd>=0){sys3(SYS_write,fd,(long)"1",1);sys3(SYS_close,fd,0,0);} }
 static int want_exit; static int u_l,u_r,a_d,b_d;
@@ -173,6 +187,7 @@ int main(void){
         if(u_r){ units=(units+1)%3; } if(u_l){ units=(units+2)%3; }
         if(a_d){ write_reset(); }
         if((frame%3)==0) load_data();
+        g_frame=frame;
         render();
         sys3(SYS_lseek,fb,0,0); sys3(SYS_write,fb,(long)framebuf,FRAME_BYTES);
         frame++; sys3(SYS_nanosleep,(long)&req,0,0);
@@ -192,6 +207,9 @@ int main(int argc,char**argv){
     units=0; render(); { char p[256]; snprintf(p,sizeof p,"%s/hud_mph.raw",argv[2]); int fd=open(p,O_WRONLY|O_CREAT|O_TRUNC,0644); if(fd>=0){if(write(fd,framebuf,FRAME_BYTES)){}close(fd);} fprintf(stderr,"wrote %s\n",p);}
     units=1; g_hdg=200; g_spd10=250; render(); { char p[256]; snprintf(p,sizeof p,"%s/hud_kmh.raw",argv[2]); int fd=open(p,O_WRONLY|O_CREAT|O_TRUNC,0644); if(fd>=0){if(write(fd,framebuf,FRAME_BYTES)){}close(fd);}}
     g_mode=0; have=1; render(); { char p[256]; snprintf(p,sizeof p,"%s/hud_nofix.raw",argv[2]); int fd=open(p,O_WRONLY|O_CREAT|O_TRUNC,0644); if(fd>=0){if(write(fd,framebuf,FRAME_BYTES)){}close(fd);}}
+    /* flock-alert frame */
+    g_mode=3; g_spd10=142; units=0; g_flock=3; g_falert=18; g_frame=3; render();
+    { char p[256]; snprintf(p,sizeof p,"%s/hud_flock.raw",argv[2]); int fd=open(p,O_WRONLY|O_CREAT|O_TRUNC,0644); if(fd>=0){if(write(fd,framebuf,FRAME_BYTES)){}close(fd);}}
     return 0;
 }
 #endif
