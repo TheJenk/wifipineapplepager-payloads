@@ -91,6 +91,7 @@ AWKV=(-v FIXF="$FIX" -v HITS="$SES/hits.csv" -v WIG="$SES/wigle.csv" -v REPEAT="
 iw dev 2>/dev/null | awk '/Interface/{i=$2} /type monitor/{print i}' > /tmp/wd_ifaces
 WIFI_OK=0
 if command -v tcpdump >/dev/null; then while IFS= read -r IF; do [ -n "$IF" ] || continue; WIFI_OK=1
+    ip link set "$IF" up 2>/dev/null     # a down monitor vif captures nothing (and zeros recon) - make sure it's up
     ( while [ ! -f "$STOP" ]; do tcpdump -i "$IF" -e -n -l -s 256 type mgt 2>/dev/null | awk "${AWKV[@]}" -v SSIDRE="$SSID_RE" -v OUI_FLOCK="$OUI_FLOCK" -v OUI_COMMUNITY="$(echo $OUI_COMMUNITY)" "$(prog wifi.awk)"; sleep 1; done > "$FIFO" ) &
   done < /tmp/wd_ifaces; fi
 BLE_OK=0; BLE_SRC=""
