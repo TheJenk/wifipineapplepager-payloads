@@ -93,10 +93,10 @@ WIFI_OK=0
 if command -v tcpdump >/dev/null; then while IFS= read -r IF; do [ -n "$IF" ] || continue; WIFI_OK=1
     ( while [ ! -f "$STOP" ]; do tcpdump -i "$IF" -e -n -l -s 256 type mgt 2>/dev/null | awk "${AWKV[@]}" -v SSIDRE="$SSID_RE" -v OUI_FLOCK="$OUI_FLOCK" -v OUI_COMMUNITY="$(echo $OUI_COMMUNITY)" "$(prog wifi.awk)"; sleep 1; done > "$FIFO" ) &
   done < /tmp/wd_ifaces; fi
-BLE_OK=0
-if command -v blue5ctl >/dev/null && blue5ctl ping >/dev/null 2>&1; then BLE_OK=1
+BLE_OK=0; BLE_SRC=""
+if command -v blue5ctl >/dev/null && blue5ctl ping >/dev/null 2>&1; then BLE_OK=1; BLE_SRC=blue5
     ( while [ ! -f "$STOP" ]; do blue5ctl fetch -n 0 -g 3 2>/dev/null; sleep 2; done | awk "${AWKV[@]}" -v MODE=blue5 -v BLE_MFG="$BLE_MFG" "$(prog ble.awk)" > "$FIFO" ) &
-elif command -v bluetoothctl >/dev/null && bluetoothctl power on >/dev/null 2>&1; then BLE_OK=1
+elif command -v bluetoothctl >/dev/null && bluetoothctl power on >/dev/null 2>&1; then BLE_OK=1; BLE_SRC=bluez
     ( while [ ! -f "$STOP" ]; do bluetoothctl --timeout 60 scan on 2>/dev/null; done | awk "${AWKV[@]}" -v MODE=bluez -v BLE_MFG="$BLE_MFG" "$(prog ble.awk)" > "$FIFO" ) &
 fi
 
@@ -124,9 +124,12 @@ hud_cleanup(){
     local p
     for pat in "tcpdump -i" "gpspipe -w" "blue5ctl fetch" "pineap/gps/get" "FIXF=$FIX"; do
         for p in $(pgrep -f "$pat" 2>/dev/null); do [ "$p" = "$$" ] || kill "$p" 2>/dev/null; done; done
-    [ "$BLE_OK" = 1 ] && command -v bluetoothctl >/dev/null && bluetoothctl scan off >/dev/null 2>&1
-    WIGLE_STOP >/dev/null 2>&1
+    # Hand the screen back FIRST, so nothing below can leave the display frozen.
     UI_END
+    # Only talk to BlueZ if we actually used it - on fw 2.0 bluetoothd is stopped
+    # (blue5 owns BT) and `bluetoothctl` would block forever waiting for it.
+    [ "$BLE_SRC" = bluez ] && command -v bluetoothctl >/dev/null && bluetoothctl scan off >/dev/null 2>&1
+    WIGLE_STOP >/dev/null 2>&1
     if [ -f "$SES/hits.csv" ]; then
         awk -v TITLE="Wardrive HUD Flock $(basename "$SES")" "$(cat "$FLK/kml.awk")" "$SES/hits.csv" > "$SES/flock.kml" 2>/dev/null
         local fsum; fsum=$(awk -F, 'NR>1 && !s[$5]++ { c[$8]++; n++ } END { printf "%d flock devices (high %d, med %d, low %d)", n+0, c["high"]+0, c["medium"]+0, c["low"]+0 }' "$SES/hits.csv")
