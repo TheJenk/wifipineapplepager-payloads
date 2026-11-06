@@ -116,7 +116,7 @@ flock_banner(){
 }
 
 UI_BEGIN
-units=0; apbase=-1; distbase=0; pg=0
+units=0; apbase=-1; distbase=0; pg=0; tick=0; seen=0
 PAGES=(drive wardrive flock gps); NP=${#PAGES[@]}
 hud_cleanup(){
     [ -n "$_WD_CLEANED" ] && return; _WD_CLEANED=1
@@ -153,6 +153,14 @@ while true; do
     flk=$(wc -l < "$FHITS" 2>/dev/null); : "${flk:=0}"
     at=$(cat "$FALERT" 2>/dev/null); : "${at:=0}"; now=$(date +%s); falert=0
     [ "$at" -gt 0 ] && [ $((now-at)) -lt "$FALERT_SECS" ] && falert=1
+
+    # live "in range" AP count straight from recon (what the radio is seeing now,
+    # with or without a GPS fix). Throttled - a curl every tick is wasteful.
+    if [ $(( tick % 3 )) -eq 0 ]; then
+        s=$(curl -s -m2 --unix-socket /tmp/api.sock "http://localhost/api/recon/wifi/status" 2>/dev/null | sed -n 's/.*"aps":\([0-9]*\).*/\1/p')
+        [ -n "$s" ] && seen=$s
+    fi
+    tick=$((tick+1))
 
     # ---- derive the display vars the views interpolate ----
     page="$((pg+1))/$NP"

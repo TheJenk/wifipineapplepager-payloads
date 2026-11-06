@@ -2,11 +2,12 @@ VStack(spacing: 5) {
   Header("WARDRIVE   \(page)")
   HStack(spacing: 8) {
     Card("APS LOGGED") { Text("\(total)", .green).size(5) }
-    Card("NEW TRIP")   { Text("\(apnew)", .amber).size(4) }
-  }.h(96)
+    Card("IN RANGE")   { Text("\(seen)", .cyan).size(5) }
+  }.h(94)
   HStack(spacing: 8) {
+    Card("NEW")   { Text("\(apnew)", .amber, .big) }
     Card("TRIP")  { Text("\(dist)", .white, .big) }
     Card("WIGLE") { Text("\(wig)", .\(wigcol), .big) }
-  }.h(54)
+  }.h(56)
   Footer("GRN RESET TRIP   L/R PAGE", "RED EXIT")
 }
