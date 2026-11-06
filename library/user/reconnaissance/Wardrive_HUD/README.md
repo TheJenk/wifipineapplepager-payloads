@@ -1,12 +1,15 @@
 # Wardrive HUD
 
-A framebuffer **wardriving heads-up display** for the Pager — and, at the same
-time, a **Flock Safety ALPR hunter**. The ultimate take-it-on-the-road HUD: an
-aviation-style display with a rotating **compass rose** + heading, a big **speed**
-readout, live **GPS fix / satellite** status, a running count of **access points
-logged** (total + new this trip), **trip distance**, and **lat/lon** — while it
-passively watches for Flock cameras and **flashes a warning + plays an alert tone**
-the moment one is near.
+A **wardriving heads-up display** for the Pager — and, at the same time, a
+**Flock Safety ALPR hunter**. The ultimate take-it-on-the-road HUD: a scrolling
+**compass heading tape**, a big **speed** readout, live **GPS fix / satellite**
+status, a running count of **access points logged** (total + new this trip),
+**trip distance**, and **lat/lon** — while it passively watches for Flock cameras
+and **flashes a warning + plays an alert tone** the moment one is near.
+
+> Built entirely on the **[Pager UI Kit](https://github.com/TheJenk/pager-ui-kit)**
+> (`ui.sh` + the prebuilt `pguid`/`pgviewc` renderer) — the whole HUD is bash, no
+> custom C.
 
 It drives the Pager's **built-in WiGLE logger** (stock recon / `pineapd`) for the
 actual Wi-Fi capture, so there's **no radio conflict** and the log is written in
@@ -59,28 +62,39 @@ standard for wardriving; Flock hits with no fix are still logged (without a
 position, so they're not placed on the map).
 
 ## How it works
-One GPS reader feeds both the HUD (`/tmp/wd_gps`) and the Flock logger
-(`/tmp/wd_fix`): it polls the pineapd API (or gpsd), parses position/speed/sats,
-and derives heading + trip distance (equirectangular, glitch-filtered). A
-**composer** merges the GPS state, the stock WiGLE row count, and the Flock state
-into one `/tmp/wardrive.dat` that the native binary renders at ~10 fps. Flock
-matchers (`tcpdump` + `blue5ctl` → awk) log hits and raise the on-screen alert.
+Background producers write small state files; a **bash HUD loop** reads them and
+draws with the UI Kit:
 
-The binary is freestanding, integer-only (the MT7628 has no FPU), drawn upright
-480×222 and rotated into the 222×480 framebuffer, using the official
-`UI_TAKEOVER` / `UI_RELEASE` handoff.
+- One **GPS reader** polls the pineapd API (or gpsd) and writes both the HUD state
+  (`/tmp/wd_gps`: mode, speed, heading, sats, lat/lon, trip) and the Flock fix
+  (`/tmp/wd_fix`). Heading + trip distance are derived from successive positions
+  (equirectangular, glitch-filtered).
+- **`WIGLE_START`** runs the stock logger; the AP counts are that CSV's row count.
+- **Flock matchers** (`tcpdump` + `blue5ctl` → awk) log hits to the separate loot
+  session and push an alert line through a fifo; a sink bumps the `FLK` counter,
+  stamps the time, and plays the tone.
+- The **HUD loop** (`UI_BEGIN` … `UI_END` from `ui.sh`) redraws ~once a second:
+  the status bar, the scrolling compass tape, big speed, the AP odometer, trip,
+  lat/lon, and — when a hit is live — the `FLOCK DETECTED` banner. `ui.sh` does
+  the `UI_TAKEOVER`/`UI_RELEASE` handoff. The drawing is fork-free, so a full
+  redraw is well under a tenth of a second.
+
+Because it's bash on the kit, there's **no compiler/toolchain** to build anything
+— edit `payload.sh` and go.
 
 ### Speed units note
 The pineapd GPS API reports speed in **m/s** (as gpsd does); the HUD converts to
 MPH/KMH/KN. If your unit ever looks off by a constant factor, that's the field to
 check.
 
-> Verified on-device (fw 2.0): the HUD renders, `WIGLE_START` logs, the GPS-API
-> reader runs, and a simulated Flock hit raises the `FLOCK DETECTED` banner, bumps
-> `FLK`, fires the tone, and writes the separate Flock loot. The full HUD layout
-> was also checked via the host preview (`-DHOST_PREVIEW`). A live GPS fix
-> (outdoors) is needed for non-zero position/speed; a real Flock camera for a
-> live detection.
+> Verified on-device (fw 2.0): the HUD renders (status bar, compass tape, speed,
+> AP odometer, trip, lat/lon), `WIGLE_START` logs, the GPS-API reader runs, and a
+> **live** Flock injection raised the `FLOCK DETECTED` banner, bumped `FLK`, fired
+> the tone, and wrote the separate Flock loot. A live GPS fix (outdoors) is needed
+> for non-zero position/speed; a real Flock camera for a real detection. (The
+> clean-exit teardown uses the same `pgrep`-based kills as the native version; it
+> was hard to confirm end-to-end here because the test rig's USB-SSH link kept
+> dropping — worth a real RED-button exit on a drive.)
 
 ## Credits
 Flock signatures from **flock-you** by colonelpanichacks (MIT). This payload is
