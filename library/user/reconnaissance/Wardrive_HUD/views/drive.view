@@ -1,0 +1,12 @@
+VStack(spacing: 5) {
+  Header("DRIVE   \(page)")
+  HStack(spacing: 8) {
+    Card("SPEED \(unit)") { Text("\(sp)", .white).size(6) }
+    Card("HEADING")       { Text("\(hdg)", .green).size(5) }
+  }.h(112)
+  HStack(spacing: 8) {
+    Card("CARDINAL") { Text("\(card)", .amber, .big) }
+    Card("GPS")      { Text("\(fixtxt)", .\(fixcol), .big) }
+  }.h(50)
+  Footer("L/R PAGE   U/D UNIT", "RED EXIT")
+}

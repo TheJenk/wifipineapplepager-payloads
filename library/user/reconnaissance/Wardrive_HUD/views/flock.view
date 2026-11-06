@@ -1,0 +1,10 @@
+VStack(spacing: 5) {
+  Header("FLOCK HUNT   \(page)")
+  Card("ALPR DETECTED") { Text("\(flk)", .\(flkcol)).size(6) }.h(86)
+  Card("LAST HIT") { Text("\(lasthit)", .text, .small) }.h(32)
+  HStack(spacing: 8) {
+    Card("WIFI") { Text("\(wifi)", .\(wifch), .big) }
+    Card("BLE")  { Text("\(ble)", .\(blech), .big) }
+  }.h(44)
+  Footer("L/R PAGE", "RED EXIT")
+}

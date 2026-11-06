@@ -1,0 +1,13 @@
+VStack(spacing: 5) {
+  Header("GPS   \(page)")
+  HStack(spacing: 8) {
+    Card("LATITUDE")  { Text("\(lat)", .green, .big) }
+    Card("LONGITUDE") { Text("\(lon)", .green, .big) }
+  }.h(54)
+  HStack(spacing: 8) {
+    Card("ALT M") { Text("\(alt)", .white, .big) }
+    Card("SATS")  { Text("\(sats)", .white, .big) }
+    Card("ACC M") { Text("\(acc)", .white, .big) }
+  }.h(54)
+  Footer("HDG \(hdg)   L/R PAGE", "RED EXIT")
+}

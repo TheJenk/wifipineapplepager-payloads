@@ -21,8 +21,23 @@ hunter listens passively on the same radios.
 
 ![HUD](preview.png)
 
+## Pages
+The HUD is split into four **pages**, each its own view file in `views/`, that you
+flip through with the D-pad:
+
+| Page | Shows |
+|---|---|
+| **DRIVE** | big speed + unit, heading, cardinal, GPS fix |
+| **WARDRIVE** | APs logged, new this trip, trip distance, WiGLE on/off |
+| **FLOCK** | Flock hits, the last detection, Wi-Fi + BLE source status |
+| **GPS** | lat/lon, altitude, sats, accuracy, heading |
+
+The **FLOCK DETECTED** banner overlays whatever page you're on, so you never miss
+a camera no matter where you've flipped to.
+
 ## Controls
-- **Left / Right** — cycle speed units (MPH / KMH / KN); distance follows (mi/km)
+- **Left / Right** — flip between pages (DRIVE · WARDRIVE · FLOCK · GPS)
+- **Up / Down** — cycle speed units (MPH / KMH / KN); distance follows (mi/km)
 - **Green (A)** — reset the **trip meters** (zeroes "new this trip" APs + trip
   distance only; the session total and the WiGLE log keep going)
 - **Red (B)** — exit (stops the WiGLE log, writes the Flock map, prints a summary)
@@ -73,11 +88,11 @@ draws with the UI Kit:
 - **Flock matchers** (`tcpdump` + `blue5ctl` → awk) log hits to the separate loot
   session and push an alert line through a fifo; a sink bumps the `FLK` counter,
   stamps the time, and plays the tone.
-- The **HUD loop** (`UI_BEGIN` … `UI_END` from `ui.sh`) redraws ~once a second:
-  the status bar, the scrolling compass tape, big speed, the AP odometer, trip,
-  lat/lon, and — when a hit is live — the `FLOCK DETECTED` banner. `ui.sh` does
-  the `UI_TAKEOVER`/`UI_RELEASE` handoff. The drawing is fork-free, so a full
-  redraw is well under a tenth of a second.
+- The **HUD loop** (`UI_BEGIN` … `UI_END` from `ui.sh`) sets the display variables
+  each tick and `UI_RENDER`s the current page's `.view` (`views/drive.view`, etc.),
+  so `\(sp)`, `\(total)`, `\(lat)` … are filled in from the shell. Left/Right swaps
+  the page; the `FLOCK DETECTED` banner is drawn on top with the command API when a
+  hit is live. `ui.sh` does the `UI_TAKEOVER`/`UI_RELEASE` handoff.
 
 Because it's bash on the kit, there's **no compiler/toolchain** to build anything
 — edit `payload.sh` and go.

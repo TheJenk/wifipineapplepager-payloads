@@ -105,27 +105,19 @@ fi
 conv_speed(){ case "$2" in 0) echo $(( $1*2237/10000 ));; 1) echo $(( $1*36/100 ));; *) echo $(( $1*19438/100000 ));; esac; }
 unit_name(){ case "$1" in 0) echo MPH;; 1) echo KMH;; *) echo KN;; esac; }
 
-# scrolling compass tape centred on heading, in band (x,y,w); 120-degree window
-compass(){
-    local hdg=$1 x=$2 y=$3 w=$4            # assign these first...
-    local cx=$((x+w/2)) ppd100=$((w*100/120)) base=$((y+22))   # ...then derive (bash expands a local's RHS before assigning, so these must be separate)
-    local A off tx a maj lbl col hs
-    UI_RECT "$x" "$base" "$w" 1 "$UI_LINE"
-    local s=$(( ((hdg-60)/15)*15 ))
-    for ((A=s; A<=hdg+60; A+=15)); do
-        off=$(( A-hdg )); [ "$off" -lt -60 ] && continue; [ "$off" -gt 60 ] && continue
-        tx=$(( cx + off*ppd100/100 )); a=$(( (A%360+360)%360 ))
-        maj=0; [ $((a%45)) -eq 0 ] && maj=1
-        if [ "$maj" = 1 ]; then col=DIM; UI_RECT "$tx" $((base-10)) 2 10 "$col"; else UI_RECT "$tx" $((base-5)) 2 5 2b3a52; fi
-        case "$a" in 0) lbl=N;; 90) lbl=E;; 180) lbl=S;; 270) lbl=W;; 45) lbl=NE;; 135) lbl=SE;; 225) lbl=SW;; 315) lbl=NW;; *) lbl="";; esac
-        [ -n "$lbl" ] && UI_TEXT $(( tx - ${#lbl}*6 )) "$y" "$lbl" ACCENT 2
-    done
-    UI_RECT $((cx-1)) "$y" 3 24 GREEN                 # centre index
-    printf -v hs '%03d' "$hdg"; UI_TEXT $((cx-17)) $((base+4)) "$hs" WHITE 2
+# heading (deg) -> cardinal letters
+cardinal(){ local c=(N NE E SE S SW W NW); echo "${c[$(( (($1+22)/45) % 8 ))]}"; }
+# the FLOCK DETECTED banner, drawn on top of whatever page is up (then re-shown)
+flock_banner(){
+    UI_RECT 40 72 400 62 e9b900; UI_BOX 40 72 400 62 000000; UI_BOX 42 74 396 58 000000
+    UI_TEXT 92 86 "FLOCK DETECTED" 000000 3
+    UI_TEXT 132 118 "ALPR CAMERA NEARBY" 302200 1
+    UI_SHOW
 }
 
 UI_BEGIN
-units=0; apbase=-1; distbase=0; frame=0
+units=0; apbase=-1; distbase=0; pg=0
+PAGES=(drive wardrive flock gps); NP=${#PAGES[@]}
 hud_cleanup(){
     [ -n "$_WD_CLEANED" ] && return; _WD_CLEANED=1
     touch "$STOP" 2>/dev/null
@@ -145,78 +137,51 @@ hud_cleanup(){
 }
 trap hud_cleanup EXIT INT TERM
 
+# Each page is a view file; Left/Right flips through them. The FLOCK banner
+# overlays whatever page is up. Variables below feed \(...) in the views.
 while true; do
     read mode spd10 hdg sats le lo cum < "$GPSF" 2>/dev/null
     : "${mode:=0}" "${spd10:=0}" "${hdg:=0}" "${sats:=0}" "${le:=0}" "${lo:=0}" "${cum:=0}"
-    # AP totals from the stock WiGLE CSV
+    [ -f "$FIX" ] && read flat flon alt acc _ < "$FIX" 2>/dev/null   # alt/acc for the GPS page (only exists once there's a fix)
+    : "${alt:=0}" "${acc:=0}"
+
     total=0; [ -n "$WLOG" ] && [ -f "$WLOG" ] && { n=$(wc -l < "$WLOG" 2>/dev/null); total=$(( n>2 ? n-2 : 0 )); }
     [ "$apbase" -lt 0 ] && apbase=$total
     apnew=$(( total-apbase )); [ "$apnew" -lt 0 ] && apnew=0
-    dist=$(( cum-distbase )); [ "$dist" -lt 0 ] && dist=0
-    # flock state
+    distm=$(( cum-distbase )); [ "$distm" -lt 0 ] && distm=0
+
     flk=$(wc -l < "$FHITS" 2>/dev/null); : "${flk:=0}"
     at=$(cat "$FALERT" 2>/dev/null); : "${at:=0}"; now=$(date +%s); falert=0
     [ "$at" -gt 0 ] && [ $((now-at)) -lt "$FALERT_SECS" ] && falert=1
 
-    sp=$(conv_speed "$spd10" "$units")
-
-    UI_CLEAR
-    # --- top status bar ---
-    UI_RECT 0 0 480 22 "$UI_BAR"; UI_RECT 0 22 480 1 "$UI_LINE"
-    UI_TEXT 8 5 "WARDRIVE HUD" GREEN 1
-    if [ "$total" != "" ] && [ -n "$WLOG" ]; then UI_RECT 108 8 6 6 GREEN; UI_TEXT 118 5 "WIGLE" GREEN 1
-    else UI_RECT 108 8 6 6 RED; UI_TEXT 118 5 "NO LOG" RED 1; fi
-    [ "$flk" -gt 0 ] && fc=ORANGE || fc=DIM
-    UI_TEXT 176 5 "FLK $flk" "$fc" 1
-    if   [ "$mode" -ge 3 ]; then UI_TEXT 322 5 "3D FIX" GREEN 1
-    elif [ "$mode" -ge 2 ]; then UI_TEXT 322 5 "2D FIX" AMBER 1
-    else UI_TEXT 322 5 "NO FIX" RED 1; fi
-    UI_TEXT 388 5 "SAT $sats" DIM 1
-    i=0; while [ "$i" -lt 10 ]; do [ "$i" -lt "$sats" ] && UI_RECT $((430+i*5)) 8 3 8 GREEN || UI_RECT $((430+i*5)) 12 3 4 2b3a52; i=$((i+1)); done
-
-    # --- compass tape ---
-    compass "$hdg" 10 28 460
-
-    # --- big speed (left) ---
-    UI_TEXT 20 66 "SPEED" DIM 1
-    UI_TEXT 16 78 "$sp" WHITE 6
-    UI_TEXT 20 150 "$(unit_name "$units")" AMBER 3
-
-    # --- AP odometer (right) ---
-    UI_CARD 250 60 220 60 "APS LOGGED"
-    UI_TEXT 262 86 "$total" GREEN 4
-    printf -v apn "+%d" "$apnew"; UI_TEXT 400 92 "$apn" AMBER 2
-
-    # --- trip (right lower) ---
-    UI_CARD 250 126 220 40 "TRIP"
-    if [ "$units" = 0 ]; then mi10=$(( dist*6214/10000000 )); printf -v td "%d.%d MI" $((mi10/10)) $((mi10%10))
-    else km10=$(( dist/100 )); printf -v td "%d.%d KM" $((km10/10)) $((km10%10)); fi
-    UI_TEXT 330 134 "$td" WHITE 2
-
-    # --- lat/lon + controls (bottom) ---
-    UI_RECT 0 182 480 1 "$UI_LINE"
+    # ---- derive the display vars the views interpolate ----
+    page="$((pg+1))/$NP"
+    sp=$(conv_speed "$spd10" "$units"); unit=$(unit_name "$units")
+    card=$(cardinal "$hdg")
+    if   [ "$mode" -ge 3 ]; then fixtxt="3D"; fixcol=green
+    elif [ "$mode" -ge 2 ]; then fixtxt="2D"; fixcol=amber
+    else fixtxt="NONE"; fixcol=red; fi
+    if [ "$units" = 0 ]; then m10=$(( distm*6214/10000000 )); printf -v dist "%d.%d MI" $((m10/10)) $((m10%10))
+    else m10=$(( distm/100 )); printf -v dist "%d.%d KM" $((m10/10)) $((m10%10)); fi
+    [ -n "$WLOG" ] && { wig=ON; wigcol=green; } || { wig=OFF; wigcol=red; }
+    [ "$flk" -gt 0 ] && flkcol=red || flkcol=green
+    [ "$WIFI_OK" = 1 ] && { wifi=ON; wifch=green; } || { wifi=OFF; wifch=dim; }
+    [ "$BLE_OK" = 1 ] && { ble=ON; blech=green; } || { ble=OFF; blech=dim; }
+    lasthit="$(tail -1 "$FHITS" 2>/dev/null)"; lasthit="${lasthit#*: }"; : "${lasthit:=none yet}"
     printf -v lat "%d.%05d" $((le/100000)) $(( (le<0?-le:le)%100000 ))
     printf -v lon "%d.%05d" $((lo/100000)) $(( (lo<0?-lo:lo)%100000 ))
-    UI_TEXT 8 190 "LAT $lat" DIM 1; UI_TEXT 150 190 "LON $lon" DIM 1
-    UI_TEXT 300 190 "GRN RST  L/R UNIT  RED EXIT" DIM 1
+    [ "$mode" -lt 2 ] && { lat="--"; lon="--"; }
 
-    [ "$mode" -lt 2 ] && UI_TEXT 150 165 "ACQUIRING GPS..." AMBER 1
+    UI_RENDER "views/${PAGES[$pg]}.view"
+    [ "$falert" = 1 ] && flock_banner
 
-    # --- FLOCK DETECTED banner (overlay) ---
-    if [ "$falert" = 1 ]; then
-        UI_RECT 40 70 400 64 e9b900; UI_RECT 40 70 400 64 e9b900
-        UI_BOX 40 70 400 64 000000; UI_BOX 42 72 396 60 000000
-        UI_TEXT 92 84 "FLOCK DETECTED" 000000 3
-        UI_TEXT 132 118 "ALPR CAMERA NEARBY" 302200 1
-    fi
-
-    UI_SHOW
     case "$(UI_KEY 1)" in
-        LEFT)  units=$(( (units+2)%3 )) ;;
-        RIGHT) units=$(( (units+1)%3 )) ;;
+        LEFT)  pg=$(( (pg+NP-1)%NP )) ;;
+        RIGHT) pg=$(( (pg+1)%NP )) ;;
+        UP)    units=$(( (units+1)%3 )) ;;
+        DOWN)  units=$(( (units+2)%3 )) ;;
         A)     apbase=$total; distbase=$cum ;;
         B)     break ;;
     esac
-    frame=$((frame+1))
 done
 hud_cleanup
