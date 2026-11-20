@@ -5,7 +5,7 @@ RTL-SDR on 1090 MHz, or pulled from a free community ADS-B feed when you'd rathe
 They're drawn on a built-in offline map of the whole US, on a radar scope, and on a full info card
 for each plane.
 
-> **Version 0.1.0, a work in progress.** It works and has been tested on a Pager running firmware
+> **Version 0.2.0, a work in progress.** It works and has been tested on a Pager running firmware
 > 2.0.0, but expect changes. Feedback welcome.
 
 ## What you need
@@ -75,7 +75,8 @@ It's used whenever there's no GPS fix. A GPS fix always wins.
 | INFO | Previous / next plane | – | Back | Back to the map or radar |
 | Menu | – | Move | Choose | Close |
 
-Planes are ordered nearest first. Planes on the ground (parked or taxiing) come last.
+Planes are ordered nearest first. Planes on the ground (parked or taxiing) come last and are drawn
+as small grey dots.
 
 **Menu:**
 
@@ -84,16 +85,37 @@ Planes are ordered nearest first. Planes on the ground (parked or taxiing) come 
 | VIEW | MAP or RADAR |
 | LABELS | callsign, altitude (hundreds of feet) or off |
 | CENTRE | you/auto, or **follow the selected plane** |
+| GROUND | SHOW or HIDE parked/taxiing aircraft |
+| ALTITUDE | ALL, BELOW 10,000 FT or ABOVE 10,000 FT |
+| KIND | ALL, AIRLINERS, LIGHT & GA, HELICOPTERS or MILITARY |
+| EMERGENCY | ALL PLANES or ONLY those squawking 7500/7600/7700 |
 | SOURCE | RADIO (RTL-SDR) or INTERNET |
 | BACK | Close the menu |
-| EXIT | Leave the app |
+| EXIT | Leave the app (tip: Up from the top of the menu jumps to EXIT) |
+
+Filter items stay open so you can combine them. While any filter is on, the top bar shows
+`FILTER …`. Filters are kept when you switch source.
 
 ## Screens
 
 - **MAP**
   - planes over an offline map (states, coastline, lakes, rivers, highways, cities, airports and runways)
-  - arrows point along each plane's track and are coloured by altitude: orange = low, green = mid,
-    blue = high, violet = very high
+  - **icons by aircraft type**, pointing along each plane's track and coloured by altitude
+    (orange = low, green = mid, blue = high, violet = very high):
+
+    | Icon | Kind (ADS-B emitter category) |
+    |---|---|
+    | Airliner | Large (A3, A4), and smaller for small jets (A2) |
+    | Big airliner | Heavy (A5) |
+    | Straight-wing prop | Light (A1) |
+    | Delta | High performance (A6) |
+    | Helicopter with rotor disk | Rotorcraft (A7) |
+    | Long thin wings | Glider (B1) and ultralight (B4) |
+    | Balloon, drone (X), vehicle (square) | Balloon (B2), UAV (B6), surface vehicles (C1, C2) |
+    | Arrow | Category not known yet |
+
+    The category comes from the plane's own identification message, so icons work in both modes.
+    Internet mode also recognises helicopters by type code and marks **military** aircraft.
   - dotted trails show the last couple of minutes
   - zoom runs from runway level (about 12 km across) to the whole country; detail fades in as you zoom
   - the bottom strip shows the selected plane
@@ -102,7 +124,8 @@ Planes are ordered nearest first. Planes on the ground (parked or taxiing) come 
   - planes beyond the range show as ticks on the rim
 - **INFO**
   - callsign, ICAO hex address, registration (also worked out from the address for US aircraft),
-    aircraft type, country, and squawk code with its meaning
+    aircraft type, country, size category or description and operator, a MILITARY tag, and the
+    squawk code with its meaning
   - altitude with climb/descent rate, speed, track, and distance and bearing from you
   - an altitude-history graph and a mini-map of the plane's track
 - **Emergencies:** a red banner flashes for squawk **7500** (hijack), **7600** (radio failure) and
@@ -146,7 +169,7 @@ A session that logs no positions leaves no file behind.
 - The default tuner gain is automatic. To change it, set `GAIN` at the top of `payload.sh`
   (e.g. `40.2` or `49.6`).
 
-## Known limits (0.1.0)
+## Known limits (0.2.0)
 
 - Decodes ADS-B extended squitter and Mode S replies (DF0/4/5/11/16/17/18/20/21). It does not do
   Mode A/C, MLAT or TIS-B.

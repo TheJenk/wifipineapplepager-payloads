@@ -236,8 +236,16 @@ static void scale_bar(int xr, int y, int mpp) {   // a round number of NM about 
     text_r(xr - len - 4, y - 4, b, C_TXT, 1);
 }
 static long epoch_now(void);
+static void filter_summary(char *o) {
+    static const char *AL[] = { "", "<10K", ">10K" }, *KD[] = { "", "AIRLINERS", "LIGHT/GA", "HELI", "MILITARY" };
+    int n = 0; o[0] = 0;
+    const char *parts[4] = { filt_emerg ? "EMERG" : "", filt_ground ? "NO GND" : "", AL[filt_alt], KD[filt_kind] };
+    for (int i = 0; i < 4; i++) if (parts[i][0]) { if (n) o[n++] = ' '; for (int k = 0; parts[i][k]; k++) o[n++] = parts[i][k]; }
+    o[n] = 0;
+}
 static void top_bar(const char *title) {
     char b[64]; fillrect(0, 0, W, 11, rgb(0, 0, 0));
+    { char f[48]; filter_summary(f); if (f[0]) { char t[64]; FMT(t, "FILTER %s", f); text_r(W - 3, 2, t, C_WARN, 1); } }
     text(3, 2, title, C_CY, 1);
     int x = 3 + slen(title) * 6 + 8;
     FMT(b, "%d AC", nvis); x = text(x, 2, b, C_HI, 1) + 8;
@@ -266,8 +274,8 @@ static void draw_plane_on(const vp_t *v, ac_t *a, int is_sel, int label) {
     int stale = t_samples - a->pos_t > 20L * FS;
     uint16_t c = stale ? C_DIM : alt_color(a->alt, 1);
     if (emergency(a->squawk) && (frame_n & 4)) c = C_RED;
-    if (a->has_vel) plane_icon(x, y, a->hdg, c, is_sel); else blip(x, y, c);
-    if (is_sel) box(x - 9, y - 9, 19, 19, C_SEL);
+    type_icon(x, y, a, c, is_sel);
+    if (is_sel) box(x - 10, y - 10, 21, 21, C_SEL);
     if (label) {
         char b[64], b2[64]; const char *l = label_mode == 1 && a->alt != NOALT ? (FMT(b, "%d", a->alt / 100), b) : ac_name(a, b2);
         int lx = x + 8; if (lx + slen(l) * 6 > v->x0 + v->w) lx = x - 8 - slen(l) * 6;
@@ -358,6 +366,8 @@ static void render_info(void) {
     if (a->type[0]) x = text(x, y, a->type, C_CY, 1) + 8;
     text(x, y, country(a->icao), C_DIM, 1);
     y += 11;
+    if (a->mil) { text(4, y, "MILITARY", C_RED, 1); y += 11; }
+    if (!a->desc[0] && cat_name(is_heli(a) ? CAT(1, 7) : a->cat)[0]) { text(4, y, cat_name(is_heli(a) ? CAT(1, 7) : a->cat), C_TXT, 1); y += 11; }
     if (a->desc[0] || a->op[0]) {
         char d[64]; int n = 0;
         for (int k = 0; a->desc[k] && n < 38; k++) d[n++] = a->desc[k];
@@ -423,20 +433,26 @@ static void render_info(void) {
     text(3, H - 9, "LEFT/RIGHT PREV/NEXT PLANE      RED BACK", C_DIM, 1);
 }
 
-#define MENU_N 6
+#define MENU_N 10
 static void render_menu(void) {
-    char b[4][64];
-    FMT(b[0], "VIEW:   %s", view == V_RADAR ? "RADAR" : "MAP");
-    FMT(b[1], "LABELS: %s", label_mode == 0 ? "CALLSIGN" : label_mode == 1 ? "ALTITUDE" : "OFF");
-    FMT(b[2], "CENTRE: %s", follow ? "SELECTED PLANE" : "ME / AUTO");
-    FMT(b[3], "SOURCE: %s", src_net ? "INTERNET" : "RADIO (RTL-SDR)");
-    const char *it[MENU_N] = { b[0], b[1], b[2], b[3], "BACK", "EXIT" };
-    int w = 210, h = 16 + MENU_N * 14, x = (W - w) / 2, y = (H - h) / 2;
+    static const char *AL[] = { "ALL", "BELOW 10,000 FT", "ABOVE 10,000 FT" }, *KD[] = { "ALL", "AIRLINERS", "LIGHT & GA", "HELICOPTERS", "MILITARY" };
+    char b[8][64];
+    FMT(b[0], "VIEW:      %s", view == V_RADAR ? "RADAR" : "MAP");
+    FMT(b[1], "LABELS:    %s", label_mode == 0 ? "CALLSIGN" : label_mode == 1 ? "ALTITUDE" : "OFF");
+    FMT(b[2], "CENTRE:    %s", follow ? "SELECTED PLANE" : "ME / AUTO");
+    FMT(b[3], "GROUND:    %s", filt_ground ? "HIDE" : "SHOW");
+    FMT(b[4], "ALTITUDE:  %s", AL[filt_alt]);
+    FMT(b[5], "KIND:      %s", KD[filt_kind]);
+    FMT(b[6], "EMERGENCY: %s", filt_emerg ? "ONLY" : "ALL PLANES");
+    FMT(b[7], "SOURCE:    %s", src_net ? "INTERNET" : "RADIO (RTL-SDR)");
+    const char *it[MENU_N] = { b[0], b[1], b[2], b[3], b[4], b[5], b[6], b[7], "BACK", "EXIT" };
+    int w = 236, h = 12 + MENU_N * 13, x = (W - w) / 2, y = (H - h) / 2;
     fillrect(x, y, w, h, rgb(5, 15, 12)); box(x, y, w, h, C_CY);
     for (int i = 0; i < MENU_N; i++) {
-        int yy = y + 9 + i * 14;
-        if (i == menu_sel) fillrect(x + 4, yy - 3, w - 8, 13, rgb(40, 70, 40));
-        text(x + 12, yy, it[i], i == menu_sel ? C_SEL : C_TXT, 1);
+        int yy = y + 8 + i * 13;
+        if (i == menu_sel) fillrect(x + 4, yy - 3, w - 8, 12, rgb(40, 70, 40));
+        int on = (i == 3 && filt_ground) || (i == 4 && filt_alt) || (i == 5 && filt_kind) || (i == 6 && filt_emerg);
+        text(x + 10, yy, it[i], i == menu_sel ? C_SEL : on ? C_WARN : C_TXT, 1);
     }
 }
 
@@ -453,11 +469,13 @@ static void render(void) {
 
 /* ======================= controls ======================= */
 static void save_ui(void) {
-    char b[96]; int n = FMT(b, "%d %d %d %d %d %d\n", view == V_INFO ? prev_view : view, mpp_i, range_i, label_mode, follow, (int)sel_icao);
+    char b[96]; int n = FMT(b, "%d %d %d %d %d %d %d %d %d %d\n", view == V_INFO ? prev_view : view, mpp_i, range_i, label_mode, follow, (int)sel_icao,
+                            filt_ground, filt_alt, filt_kind, filt_emerg);
     save_file("/tmp/adsb_ui", b, n);
 }
 static void load_ui(void) {
-    long v[6]; if (rd_ints("/tmp/adsb_ui", v, 6) < 5) return;
+    long v[10]; int nv = rd_ints("/tmp/adsb_ui", v, 10); if (nv < 5) return;
+    if (nv >= 10) { filt_ground = v[6] != 0; filt_alt = (int)(v[7] % 3); filt_kind = (int)(v[8] % 5); filt_emerg = v[9] != 0; }
     view = (v[0] == V_RADAR) ? V_RADAR : V_MAP; prev_view = view;
     if (v[1] >= 0 && v[1] < NMPP) mpp_i = (int)v[1];
     if (v[2] >= 0 && v[2] < NRANGE) range_i = (int)v[2];
@@ -478,8 +496,12 @@ static int on_keys(int up, int dn, int lf, int rt, int ga, int red) {
             if (menu_sel == 0) { view = view == V_RADAR ? V_MAP : V_RADAR; menu_open = 0; }
             else if (menu_sel == 1) label_mode = (label_mode + 1) % 3;
             else if (menu_sel == 2) { follow = !follow; menu_open = 0; }
-            else if (menu_sel == 3) { save_ui(); return 10; }      // payload.sh restarts us on the other source
-            else if (menu_sel == 4) menu_open = 0;
+            else if (menu_sel == 3) filt_ground = !filt_ground;      // filters stay open so you can stack them
+            else if (menu_sel == 4) filt_alt = (filt_alt + 1) % 3;
+            else if (menu_sel == 5) filt_kind = (filt_kind + 1) % 5;
+            else if (menu_sel == 6) filt_emerg = !filt_emerg;
+            else if (menu_sel == 7) { save_ui(); return 10; }      // payload.sh restarts us on the other source
+            else if (menu_sel == 8) menu_open = 0;
             else return 1;
         }
         return 0;

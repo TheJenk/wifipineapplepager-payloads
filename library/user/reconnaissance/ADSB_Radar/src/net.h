@@ -49,7 +49,8 @@ static int jnum(const uint8_t *p, const uint8_t *e, int dec, int64_t *out) {
 static int keyis(const char *k, const char *s) { while (*k && *k == *s) { k++; s++; } return *k == 0 && *s == 0; }
 
 static void net_merge_one(const uint8_t *p, const uint8_t *e) {   // p after '{', e at matching '}'
-    char hex[8] = "", flight[12] = "", reg[12] = "", type[8] = "", sq[8] = "", desc[24] = "", op[28] = "";
+    char hex[8] = "", flight[12] = "", reg[12] = "", type[8] = "", sq[8] = "", desc[24] = "", op[28] = "", cat[4] = "";
+    long dbflags = 0;
     long alt = NOALT, la = 0, lo = 0, gs = -1, trk = -1, vr = 0, seen = 0, seen_pos = -1;
     int has_la = 0, has_lo = 0, ground = 0;
     while (p < e) {
@@ -63,6 +64,7 @@ static void net_merge_one(const uint8_t *p, const uint8_t *e) {   // p after '{'
             if (keyis(k, "hex")) memcpy(hex, v, 7);
             else if (keyis(k, "desc")) memcpy(desc, v, 23);
             else if (keyis(k, "ownOp")) memcpy(op, v, 27);
+            else if (keyis(k, "category")) memcpy(cat, v, 3);
             else if (keyis(k, "flight")) memcpy(flight, v, 11);
             else if (keyis(k, "r")) memcpy(reg, v, 11);
             else if (keyis(k, "t")) memcpy(type, v, 7);
@@ -78,6 +80,7 @@ static void net_merge_one(const uint8_t *p, const uint8_t *e) {   // p after '{'
         else if (keyis(k, "track") && jnum(p, e, 0, &n)) trk = n;
         else if ((keyis(k, "baro_rate") || (keyis(k, "geom_rate") && !vr)) && jnum(p, e, 0, &n)) vr = n;
         else if (keyis(k, "seen") && jnum(p, e, 3, &n)) seen = n;
+        else if (keyis(k, "dbFlags") && jnum(p, e, 0, &n)) dbflags = (long)n;
         else if (keyis(k, "seen_pos") && jnum(p, e, 3, &n)) seen_pos = n;
         p = jskip(p, e);
     }
@@ -95,6 +98,8 @@ static void net_merge_one(const uint8_t *p, const uint8_t *e) {   // p after '{'
     memcpy(a->desc, desc, 23); a->desc[23] = 0;
     memcpy(a->op, op, 27); a->op[27] = 0;
     a->ground = ground;
+    if (cat[0] >= 'A' && cat[0] <= 'D' && cat[1] >= '1' && cat[1] <= '7') a->cat = (uint8_t)(((cat[0] - 'A' + 1) << 3) | (cat[1] - '0'));
+    a->mil = (dbflags & 1) ? 1 : 0;
     if (ground) a->alt = 0; else if (alt != NOALT) a->alt = (int)alt;
     if (gs >= 0) { a->spd = (int)gs; a->hdg = trk >= 0 ? (int)(trk % 360) : a->hdg; a->has_vel = 1; }
     a->vr = (int)vr;

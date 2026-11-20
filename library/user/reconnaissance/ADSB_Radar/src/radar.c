@@ -124,6 +124,7 @@ static const int RANGE_NM[] = {5, 10, 25, 50, 100, 200};
 #define NRANGE 6
 static int range_i = 2;
 static int label_mode = 0;        // 0 callsign, 1 altitude, 2 none
+static int filt_ground, filt_alt, filt_kind, filt_emerg;   // menu filters (see views.h)
 static uint32_t sel_icao;
 static int frame_n;
 static int src_net;
@@ -133,6 +134,7 @@ static long rate_prev_ok, rate_prev_t; static int msg_rate; static int rx_pct = 
 #define SCR 106
 
 typedef struct { ac_t *a; int64_t dist; int brg; int sx, sy, on; } view_t;
+static int passes_filters(const ac_t *a);
 static view_t vis[MAXAC]; static int nvis;
 
 static void build_view(void) {
@@ -142,6 +144,7 @@ static void build_view(void) {
         ac_t *a = &acs[i];
         if (t_samples - a->seen > 60L * FS) continue;
         if (a->msgs < 2 && !a->has_pos) continue;
+        if (!passes_filters(a)) continue;
         view_t *v = &vis[nvis++]; v->a = a; v->dist = -1; v->on = 0; v->brg = 0;
         if (a->has_pos && have_ref) {
             int64_t e, n; enu(a->lat, a->lon, &e, &n);
@@ -186,6 +189,89 @@ static void plane_icon(int x, int y, int hdg, uint16_t c, int big) {
     fill_tri(X[0], Y[0], X[2], Y[2], X[3], Y[3], c);
 }
 static void blip(int x, int y, uint16_t c) { fillrect(x - 2, y - 2, 5, 5, c); }
+
+/* ---- aircraft silhouettes by emitter category (nose up, units ~1 px, rotated by track) ---- */
+static const int8_t SH_AIRLINER[] = { 0,-8, 1,-6, 1,-2, 7,2, 7,3, 1,1, 1,5, 3,7, 3,8, 0,7, -3,8, -3,7, -1,5, -1,1, -7,3, -7,2, -1,-2, -1,-6 };
+static const int8_t SH_HEAVY[]    = { 0,-10, 1,-8, 2,-3, 10,3, 10,4, 2,1, 1,6, 4,8, 4,9, 0,8, -4,9, -4,8, -1,6, -2,1, -10,4, -10,3, -2,-3, -1,-8 };
+static const int8_t SH_LIGHT[]    = { 0,-7, 1,-6, 1,-3, 8,-3, 8,-1, 1,-1, 1,4, 3,5, 3,6, -3,6, -3,5, -1,4, -1,-1, -8,-1, -8,-3, -1,-3, -1,-6 };
+static const int8_t SH_GLIDER[]   = { 0,-6, 1,-5, 1,-2, 10,-2, 10,-1, 1,-1, 1,5, 3,6, 3,7, -3,7, -3,6, -1,5, -1,-1, -10,-1, -10,-2, -1,-2, -1,-5 };
+static const int8_t SH_FIGHTER[]  = { 0,-9, 1,-5, 6,3, 6,5, 2,5, 2,7, -2,7, -2,5, -6,5, -6,3, -1,-5 };
+static const int8_t SH_HELI[]     = { 0,-4, 2,-2, 2,2, 1,3, 1,8, -1,8, -1,3, -2,2, -2,-2 };
+static void fill_poly(const int *vx, const int *vy, int n, uint16_t c) {   // even-odd scanline fill, Q4 coords
+    int miny = 1 << 30, maxy = -(1 << 30);
+    for (int i = 0; i < n; i++) { if (vy[i] < miny) miny = vy[i]; if (vy[i] > maxy) maxy = vy[i]; }
+    for (int y = (miny >> 4); y <= (maxy >> 4) + 1; y++) {
+        int yc = y * 16 + 8, xs[24], k = 0;
+        for (int i = 0, j = n - 1; i < n; j = i++) {
+            if ((vy[i] > yc) != (vy[j] > yc) && k < 24)
+                xs[k++] = vx[j] + (int)((int64_t)(vx[i] - vx[j]) * (yc - vy[j]) / (vy[i] - vy[j]));
+        }
+        for (int a = 1; a < k; a++) { int v = xs[a], b = a - 1; while (b >= 0 && xs[b] > v) { xs[b + 1] = xs[b]; b--; } xs[b + 1] = v; }
+        for (int a = 0; a + 1 < k; a += 2) for (int x = (xs[a] + 8) >> 4; x <= (xs[a + 1] - 8) >> 4; x++) px(x, y, c);
+    }
+}
+static void shape(int x, int y, int hdg, const int8_t *pts, int n, int q, uint16_t c) {   // q: Q4 px per unit
+    int X[24], Y[24], s = SIN360[hdg % 360], co = SIN360[(hdg + 90) % 360];
+    for (int i = 0; i < n; i++) {
+        int ax = pts[2 * i] * q, ay = pts[2 * i + 1] * q;
+        X[i] = x * 16 + 8 + ((ax * co - ay * s) >> 14); Y[i] = y * 16 + 8 + ((ax * s + ay * co) >> 14);
+    }
+    fill_poly(X, Y, n, c);
+}
+static int heli_type(const char *t) {   // common helicopter ICAO type codes (internet feed, when no category)
+    static const char *HELI[] = { "R22", "R44", "R66", "B06", "B407", "B412", "B429", "B505", "EC20", "EC30", "EC35", "EC45", "EC55", "EC75",
+                               "H125", "H130", "H135", "H145", "H160", "AS50", "AS55", "AS65", "A109", "A119", "A139", "A169", "S76", "S92", "H60", "UH1", "BK17", 0 };
+    for (int i = 0; HELI[i]; i++) { int k = 0; while (HELI[i][k] && HELI[i][k] == t[k]) k++; if (!HELI[i][k] && !t[k]) return 1; }
+    return 0;
+}
+#define CAT(set, num) (((set) << 3) | (num))
+static void type_icon(int x, int y, const ac_t *a, uint16_t c, int big) {
+    int q = big ? 18 : 13, cat = a->cat;
+    if (!cat && a->type[0] && heli_type(a->type)) cat = CAT(1, 7);
+    if (cat == CAT(1, 7)) {                                   // rotorcraft: rotor disk + body
+        circle(x, y, big ? 8 : 6, c, 1);
+        shape(x, y, a->has_vel ? a->hdg : 0, SH_HELI, 9, q, c); return;
+    }
+    if (cat == CAT(2, 2)) { int r = big ? 5 : 4; for (int dy = -r; dy <= r; dy++) for (int dx = -r; dx <= r; dx++) if (dx * dx + dy * dy <= r * r) px(x + dx, y - 2 + dy, c); fillrect(x - 1, y + r - 1, 3, 3, c); return; }   // balloon
+    if (cat == CAT(2, 6)) { line(x - 5, y - 5, x + 5, y + 5, c); line(x - 5, y + 5, x + 5, y - 5, c);                       // drone
+        for (int i = 0; i < 4; i++) circle(x + (i & 1 ? 5 : -5), y + (i & 2 ? 5 : -5), 2, c, 0); return; }
+    if (cat == CAT(2, 3)) { fillrect(x - 1, y - 1, 3, 3, c); circle(x, y, 4, c, 0); return; }                              // parachutist
+    if ((cat >> 3) == 3) { fillrect(x - 3, y - 2, 7, 5, c); return; }                                                    // surface vehicle
+    if (!a->has_vel) { blip(x, y, c); return; }
+    int h = a->hdg;
+    switch (cat) {
+        case CAT(1, 1): shape(x, y, h, SH_LIGHT, 17, q, c); return;                    // light
+        case CAT(1, 2): shape(x, y, h, SH_AIRLINER, 18, q * 13 / 16, c); return;       // small (regional / bizjet)
+        case CAT(1, 3): case CAT(1, 4): shape(x, y, h, SH_AIRLINER, 18, q, c); return;   // large
+        case CAT(1, 5): shape(x, y, h, SH_HEAVY, 18, q, c); return;                    // heavy
+        case CAT(1, 6): case CAT(2, 7): shape(x, y, h, SH_FIGHTER, 11, q, c); return;   // high performance / space
+        case CAT(2, 1): case CAT(2, 4): shape(x, y, h, SH_GLIDER, 17, q, c); return;   // glider / ultralight
+        default: plane_icon(x, y, h, c, big); return;                                 // unknown: arrow
+    }
+}
+static int is_heli(const ac_t *a) { return a->cat == CAT(1, 7) || (!a->cat && a->type[0] && heli_type(a->type)); }
+static int emergency(int sq);
+static int passes_filters(const ac_t *a) {
+    if (filt_emerg && !emergency(a->squawk)) return 0;
+    if (filt_ground && a->ground) return 0;
+    if (filt_alt == 1 && (a->ground || a->alt == NOALT || a->alt >= 10000)) return 0;
+    if (filt_alt == 2 && (a->ground || a->alt == NOALT || a->alt < 10000)) return 0;
+    if (filt_kind == 1 && !(a->cat >= CAT(1, 3) && a->cat <= CAT(1, 5))) return 0;                              // airliners
+    if (filt_kind == 2 && !(a->cat == CAT(1, 1) || a->cat == CAT(1, 2) || a->cat == CAT(2, 1) || a->cat == CAT(2, 4))) return 0;   // light & GA
+    if (filt_kind == 3 && !is_heli(a)) return 0;
+    if (filt_kind == 4 && !(a->mil || a->cat == CAT(1, 6))) return 0;                                          // military
+    return 1;
+}
+static const char *cat_name(int cat) {
+    switch (cat) {
+        case CAT(1, 1): return "LIGHT  <15,500 LB"; case CAT(1, 2): return "SMALL  15,500-75,000 LB";
+        case CAT(1, 3): return "LARGE  75,000-300,000 LB"; case CAT(1, 4): return "LARGE  HIGH VORTEX (B757)";
+        case CAT(1, 5): return "HEAVY  >300,000 LB"; case CAT(1, 6): return "HIGH PERFORMANCE"; case CAT(1, 7): return "ROTORCRAFT";
+        case CAT(2, 1): return "GLIDER"; case CAT(2, 2): return "BALLOON / AIRSHIP"; case CAT(2, 3): return "PARACHUTIST";
+        case CAT(2, 4): return "ULTRALIGHT"; case CAT(2, 6): return "DRONE (UAV)"; case CAT(2, 7): return "SPACE VEHICLE";
+        case CAT(3, 1): return "EMERGENCY VEHICLE"; case CAT(3, 2): return "SERVICE VEHICLE"; default: return "";
+    }
+}
 
 static void fmt_dist(char *b, int64_t m) {   // nautical miles, 1 decimal under 100
     if (m < 0) { b[0] = '-'; b[1] = '-'; b[2] = 0; return; }
@@ -234,8 +320,8 @@ static void render_radar(void) {
         uint16_t c = stale ? C_DIM : alt_color(a->alt, 1);
         if (emergency(a->squawk) && (frame_n & 4)) c = C_RED;
         if (a->ground && !is_sel) { fillrect(v->sx - 1, v->sy - 1, 3, 3, rgb(110, 110, 110)); continue; }
-        if (a->has_vel) plane_icon(v->sx, v->sy, a->hdg, c, is_sel); else blip(v->sx, v->sy, c);
-        if (is_sel) box(v->sx - 9, v->sy - 9, 19, 19, C_SEL);
+        type_icon(v->sx, v->sy, a, c, is_sel);
+        if (is_sel) box(v->sx - 10, v->sy - 10, 21, 21, C_SEL);
         if (label_mode < 2 || is_sel) {
             const char *l = label_mode == 1 && a->alt != NOALT ? (FMT(b, "%d", a->alt / 100), b) : ac_name(a, b2);
             int lx = v->sx + 8; if (lx + slen(l) * 6 > SCX + SCR) lx = v->sx - 8 - slen(l) * 6;
@@ -258,7 +344,8 @@ static void render_radar(void) {
     else if (rx_pct >= 0) FMT(b, "RX %d%%  %d MSG/S", rx_pct, msg_rate); else FMT(b, "%d MSG/S", msg_rate);
     text_r(W - 3, 12, b, !src_net && rx_pct >= 0 && rx_pct < 95 ? C_WARN : C_DIM, 1);
     const char *refs = ref_mode == 9 ? "NO GPS: AUTO" : ref_mode == 0 ? "NO GPS" : ref_mode == 1 ? "HOME POS" : "GPS FIX";
-    text(PX, 22, refs, ref_mode >= 1 && ref_mode != 9 ? C_TXT : C_WARN, 1);
+    int rx_ = text(PX, 22, refs, ref_mode >= 1 && ref_mode != 9 ? C_TXT : C_WARN, 1);
+    if (filt_ground || filt_alt || filt_kind || filt_emerg) text(rx_ + 6, 22, "FILTER", C_WARN, 1);
     FMT(b, "RANGE %dNM", RANGE_NM[range_i]); text_r(W - 3, 22, b, C_TXT, 1);
 
     // list

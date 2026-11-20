@@ -102,6 +102,8 @@ typedef struct {
     char desc[24], op[28];          // aircraft description + operator (adsb.fi)
     int32_t b_lat, b_lon; long b_t; // last reported position, for dead reckoning between downloads
     int ground;                     // on the ground (internet feed says "ground")
+    uint8_t cat;                    // ADS-B emitter category: set (1=A 2=B 3=C 4=D) << 3 | number; 0 = unknown
+    uint8_t mil;                    // military (internet feed dbFlags bit 0)
 } ac_t;
 #define MAXAC 256
 static ac_t acs[MAXAC]; static int nac;
@@ -191,6 +193,7 @@ static void handle(uint8_t *msg, int sig) {
     if (df != 17) return;
     int tc = msg[4] >> 3;
     if (tc >= 1 && tc <= 4) {
+        if (msg[4] & 7) ac->cat = (uint8_t)(((5 - tc) << 3) | (msg[4] & 7));   // TC4=A, 3=B, 2=C, 1=D
         static const char cs[] = "?ABCDEFGHIJKLMNOPQRSTUVWXYZ????? ???????????????0123456789??????";
         uint64_t v = 0; for (int i = 5; i < 11; i++) v = (v << 8) | msg[i];
         for (int i = 0; i < 8; i++) ac->call[i] = cs[(v >> (42 - 6 * i)) & 0x3F];

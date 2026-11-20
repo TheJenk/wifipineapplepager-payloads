@@ -1,8 +1,8 @@
 #!/bin/bash
 # Title: ADS-B Radar
 # Author: Jenx
-# Description: Live aircraft tracking from an RTL-SDR on 1090 MHz decoded on the Pager itself (no internet needed), or from a free internet ADS-B feed when no dongle is plugged in (frees the USB port for a GPS). MAP view with a built-in offline map of the whole US (states, coastline, highways, rivers, lakes, cities, airports with runways; zoom from runway to country scale) and RADAR view (scope + list), planes pointing along their track and coloured by altitude, with trails. Pick any plane for a full INFO card: registration, aircraft type (internet), country, squawk, altitude history and a mini-map of its track. Flashing banner for emergency squawks (7500/7600/7700). Logs positions to loot as CSV.
-# Version: 0.1.0
+# Description: Live aircraft tracking from an RTL-SDR on 1090 MHz decoded on the Pager itself (no internet needed), or from a free internet ADS-B feed when no dongle is plugged in (frees the USB port for a GPS). Aircraft icons by type (airliner, heavy, light, helicopter, glider, balloon, drone...) and filters (ground, altitude, kind, emergencies). MAP view with a built-in offline map of the whole US (states, coastline, highways, rivers, lakes, cities, airports with runways; zoom from runway to country scale) and RADAR view (scope + list), planes pointing along their track and coloured by altitude, with trails. Pick any plane for a full INFO card: registration, aircraft type (internet), country, squawk, altitude history and a mini-map of its track. Flashing banner for emergency squawks (7500/7600/7700). Logs positions to loot as CSV.
+# Version: 0.2.0
 # Category: reconnaissance
 
 # ---------------------------------------------------------------------------
@@ -10,7 +10,8 @@
 #                          Green (A)   plane INFO        Red (B)  menu
 # Controls (INFO):         Left/Right  prev/next plane   Red (B)  back to the map/radar
 # Menu: VIEW map/radar, LABELS callsign/altitude/off, CENTRE me-auto/selected plane,
-#       SOURCE radio (RTL-SDR) / internet, BACK, EXIT
+#       filters GROUND show/hide, ALTITUDE all/<10k/>10k, KIND all/airliners/light&GA/
+#       helicopters/military, EMERGENCY all/only; SOURCE radio (RTL-SDR) / internet, BACK, EXIT
 #
 # SOURCE
 #   Radio    - an RTL-SDR on USB, decoded on the Pager. No internet needed.
