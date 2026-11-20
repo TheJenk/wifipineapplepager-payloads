@@ -1,13 +1,16 @@
 #!/bin/bash
 # Title: ADS-B Radar
 # Author: Jenx
-# Description: Live aircraft tracking from an RTL-SDR on 1090 MHz decoded on the Pager itself (no internet needed), or from a free internet ADS-B feed when no dongle is plugged in (frees the USB port for a GPS). Aircraft icons by type (airliner, heavy, light, helicopter, glider, balloon, drone...) and filters (ground, altitude, kind, emergencies). MAP view with a built-in offline map of the whole US (states, coastline, highways, rivers, lakes, cities, airports with runways; zoom from runway to country scale) and RADAR view (scope + list), planes pointing along their track and coloured by altitude, with trails. Pick any plane for a full INFO card: registration, aircraft type (internet), country, squawk, altitude history and a mini-map of its track. Flashing banner for emergency squawks (7500/7600/7700). Logs positions to loot as CSV.
-# Version: 0.2.0
+# Description: Live aircraft tracking from an RTL-SDR on 1090 MHz decoded on the Pager itself (no internet needed), or from a free internet ADS-B feed when no dongle is plugged in (frees the USB port for a GPS). Aircraft icons by type (airliner, heavy, light, helicopter, glider, balloon, drone...) and filters (ground, altitude, kind, emergencies). Hold Green to pan the map with the D-pad. MAP view with a built-in offline map of the whole US (states, coastline, highways, rivers, lakes, cities, airports with runways; zoom from runway to country scale) and RADAR view (scope + list), planes pointing along their track and coloured by altitude, with trails. Pick any plane for a full INFO card: registration, aircraft type (internet), country, squawk, altitude history and a mini-map of its track. Flashing banner for emergency squawks (7500/7600/7700). Logs positions to loot as CSV.
+# Version: 0.3.0
 # Category: reconnaissance
 
 # ---------------------------------------------------------------------------
 # Controls (MAP / RADAR):  Left/Right  pick a plane     Up/Down  zoom in / out
 #                          Green (A)   plane INFO        Red (B)  menu
+#                          hold Green on the MAP = PAN MODE
+# Controls (PAN MODE):     D-pad move the map (hold to glide)   Green/Red zoom in/out
+#                          hold Green = done (map stays put)    hold Red = re-centre
 # Controls (INFO):         Left/Right  prev/next plane   Red (B)  back to the map/radar
 # Menu: VIEW map/radar, LABELS callsign/altitude/off, CENTRE me-auto/selected plane,
 #       filters GROUND show/hide, ALTITUDE all/<10k/>10k, KIND all/airliners/light&GA/

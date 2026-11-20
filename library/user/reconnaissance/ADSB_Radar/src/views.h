@@ -220,13 +220,26 @@ static const int MPP[] = {25, 50, 100, 200, 400, 800, 1600, 3200, 6400, 12800}; 
 static int mpp_i = START_ZOOM;
 static int menu_open, menu_sel;
 static int follow;                 // map centres on the selected plane
+static int pan_mode;               // D-pad moves the map (hold Green on the map to enter / leave)
+static int centre_free;            // map centre was moved by hand (stays until re-centred)
+static int32_t pan_lat, pan_lon;
 
 static void map_center(int32_t *la, int32_t *lo) {
     int s = sel_index();
-    if (follow && s >= 0 && vis[s].a->has_pos) { *la = vis[s].a->lat; *lo = vis[s].a->lon; }
+    if (centre_free) { *la = pan_lat; *lo = pan_lon; }
+    else if (follow && s >= 0 && vis[s].a->has_pos) { *la = vis[s].a->lat; *lo = vis[s].a->lon; }
     else if (have_ref) { *la = ref_lat; *lo = ref_lon; }          // GPS, home.txt, or the first plane heard
     else if (map_len) { *la = map_clat; *lo = map_clon; }
     else { *la = 0; *lo = 0; }
+}
+// move the map centre by (dx, dy) screen pixels at the current zoom
+static void pan_by(int dx, int dy) {
+    int32_t la, lo; map_center(&la, &lo);
+    vp_t v; vp_init(&v, 0, 0, W, H, la, lo, MPP[mpp_i]);
+    int64_t nla = (int64_t)la - (((int64_t)dy << 40) / v.fy);
+    if (nla > (1LL << 30) - 1) nla = (1LL << 30) - 1; if (nla < -(1LL << 30) + 1) nla = -(1LL << 30) + 1;   // stay within +/-90
+    pan_lat = (int32_t)nla; pan_lon = (int32_t)(uint32_t)((int64_t)lo + (((int64_t)dx << 40) / v.fx));
+    centre_free = 1;
 }
 static void scale_bar(int xr, int y, int mpp) {   // a round number of NM about 60 px long
     static const int NM[] = {1, 2, 5, 10, 20, 50, 100, 200, 500, 1000};
@@ -339,12 +352,20 @@ static void render_map(void) {
         if (a->has_vel) { FMT(b, "%d KT  TRK %03d", a->spd, a->hdg); x = text(x, H - 10, b, C_TXT, 1) + 8; }
         if (vis[sel].dist >= 0 && ref_mode != 9) { FMT(b, "%s NM", d); x = text(x, H - 10, b, C_TXT, 1) + 8; }
         else if (!a->has_pos) x = text(x, H - 10, "NO POSITION", C_DIM, 1) + 8;
-        text_r(W - 3, H - 10, "GRN INFO", C_DIM, 1);
+        text_r(W - 3, H - 10, "GRN INFO  HOLD: PAN", C_DIM, 1);
     } else if (src_net && net_state == 3) text(3, H - 10, "INTERNET MODE: PLUG IN GPS OR ADD HOME.TXT", C_WARN, 1);
     else if (src_net && net_state == 2) text(3, H - 10, "NO DATA: CHECK WI-FI, OR FEEDS ARE RATE LIMITING", C_WARN, 1);
     else if (!have_ref) text(3, H - 10, "NO GPS: MAP CENTRES ON THE FIRST PLANE HEARD", C_WARN, 1);
     else text(3, H - 10, nac ? "LEFT/RIGHT: PICK A PLANE" : "LISTENING ON 1090 MHZ...", C_DIM, 1);
-    if (follow) text_r(W - 4, 30, "FOLLOWING", C_SEL, 1);
+    if (follow && !centre_free) text_r(W - 4, 30, "FOLLOWING", C_SEL, 1);
+    if (centre_free && !pan_mode) text_r(W - 4, 30, "PANNED", C_WARN, 1);
+    if (pan_mode) {   // amber frame, centre crosshair, help line
+        box(0, 11, W, H - 23, C_WARN); box(1, 12, W - 2, H - 25, C_WARN);
+        hline(W / 2 - 8, H / 2, 6, C_WARN); hline(W / 2 + 3, H / 2, 6, C_WARN); vline(W / 2, H / 2 - 8, 6, C_WARN); vline(W / 2, H / 2 + 3, 6, C_WARN);
+        fillrect(0, H - 12, W, 12, rgb(40, 28, 0));
+        text(3, H - 10, "PAN: D-PAD MOVE  GRN/RED ZOOM  HOLD GRN DONE  HOLD RED HOME", C_WARN, 1);
+        text_r(W - 4, 30, "PAN MODE", C_WARN, 1);
+    }
     emergency_banner(12);
 }
 
@@ -439,7 +460,7 @@ static void render_menu(void) {
     char b[8][64];
     FMT(b[0], "VIEW:      %s", view == V_RADAR ? "RADAR" : "MAP");
     FMT(b[1], "LABELS:    %s", label_mode == 0 ? "CALLSIGN" : label_mode == 1 ? "ALTITUDE" : "OFF");
-    FMT(b[2], "CENTRE:    %s", follow ? "SELECTED PLANE" : "ME / AUTO");
+    FMT(b[2], "CENTRE:    %s", centre_free ? "PANNED (RE-CENTRE)" : follow ? "SELECTED PLANE" : "ME / AUTO");
     FMT(b[3], "GROUND:    %s", filt_ground ? "HIDE" : "SHOW");
     FMT(b[4], "ALTITUDE:  %s", AL[filt_alt]);
     FMT(b[5], "KIND:      %s", KD[filt_kind]);
@@ -469,12 +490,13 @@ static void render(void) {
 
 /* ======================= controls ======================= */
 static void save_ui(void) {
-    char b[96]; int n = FMT(b, "%d %d %d %d %d %d %d %d %d %d\n", view == V_INFO ? prev_view : view, mpp_i, range_i, label_mode, follow, (int)sel_icao,
-                            filt_ground, filt_alt, filt_kind, filt_emerg);
+    char b[128]; int n = FMT(b, "%d %d %d %d %d %d %d %d %d %d %d %d %d\n", view == V_INFO ? prev_view : view, mpp_i, range_i, label_mode, follow, (int)sel_icao,
+                            filt_ground, filt_alt, filt_kind, filt_emerg, centre_free, (int)pan_lat, (int)pan_lon);
     save_file("/tmp/adsb_ui", b, n);
 }
 static void load_ui(void) {
-    long v[10]; int nv = rd_ints("/tmp/adsb_ui", v, 10); if (nv < 5) return;
+    long v[13]; int nv = rd_ints("/tmp/adsb_ui", v, 13); if (nv < 5) return;
+    if (nv >= 13) { centre_free = v[10] != 0; pan_lat = (int32_t)v[11]; pan_lon = (int32_t)v[12]; }
     if (nv >= 10) { filt_ground = v[6] != 0; filt_alt = (int)(v[7] % 3); filt_kind = (int)(v[8] % 5); filt_emerg = v[9] != 0; }
     view = (v[0] == V_RADAR) ? V_RADAR : V_MAP; prev_view = view;
     if (v[1] >= 0 && v[1] < NMPP) mpp_i = (int)v[1];
@@ -486,8 +508,22 @@ static void step_sel(int d) {
     int s = sel_index(); s = s < 0 ? 0 : (s + d % nvis + nvis) % nvis;
     sel_icao = vis[s].a->icao;
 }
-// returns 1 to quit
-static int on_keys(int up, int dn, int lf, int rt, int ga, int red) {
+// returns 1 to quit, 10 to switch source. gh / rh = Green / Red held (~0.6 s)
+static int on_keys(int up, int dn, int lf, int rt, int ga, int red, int gh, int rh) {
+    if (pan_mode) {
+        int sx = W / 4, sy = H / 4;
+        if (up) pan_by(0, -sy); if (dn) pan_by(0, sy); if (lf) pan_by(-sx, 0); if (rt) pan_by(sx, 0);
+        if (ga && mpp_i > 0) mpp_i--;
+        if (red && mpp_i < NMPP - 1) mpp_i++;
+        if (gh) { pan_mode = 0; if (!centre_free) { int32_t la, lo; map_center(&la, &lo); pan_lat = la; pan_lon = lo; centre_free = 1; } }
+        if (rh) { pan_mode = 0; centre_free = 0; follow = 0; }
+        return 0;
+    }
+    if (view == V_MAP && !menu_open && gh) {   // hold Green on the map: start panning from where we are
+        int32_t la, lo; map_center(&la, &lo); pan_lat = la; pan_lon = lo; centre_free = 1; follow = 0; pan_mode = 1;
+        return 0;
+    }
+    ga += gh; red += rh;                       // elsewhere a hold is just a press
     if (menu_open) {
         if (up) menu_sel = (menu_sel + MENU_N - 1) % MENU_N;
         if (dn) menu_sel = (menu_sel + 1) % MENU_N;
@@ -495,7 +531,7 @@ static int on_keys(int up, int dn, int lf, int rt, int ga, int red) {
         if (ga) {
             if (menu_sel == 0) { view = view == V_RADAR ? V_MAP : V_RADAR; menu_open = 0; }
             else if (menu_sel == 1) label_mode = (label_mode + 1) % 3;
-            else if (menu_sel == 2) { follow = !follow; menu_open = 0; }
+            else if (menu_sel == 2) { if (centre_free) { centre_free = 0; follow = 0; } else follow = !follow; menu_open = 0; }
             else if (menu_sel == 3) filt_ground = !filt_ground;      // filters stay open so you can stack them
             else if (menu_sel == 4) filt_alt = (filt_alt + 1) % 3;
             else if (menu_sel == 5) filt_kind = (filt_kind + 1) % 5;

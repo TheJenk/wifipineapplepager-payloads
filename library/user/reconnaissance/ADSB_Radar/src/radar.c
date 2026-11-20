@@ -569,23 +569,39 @@ int main(void) {
             break;                                     // one chunk per pass keeps the UI responsive
         }
         // keys
-        int up = 0, dn = 0, lf = 0, rt = 0, ga = 0, red = 0, quit = 0;
+        int up = 0, dn = 0, lf = 0, rt = 0, ga = 0, red = 0, gh = 0, rh = 0, quit = 0;
+        int now = now_ms();
         unsigned char e[16];
+        // D-pad acts on press. Green/Red act on release (tap) or after HOLD_MS while still down (hold).
+        static int kdn[6], kt0[6], kfired[6], krep[6];   // up down left right green red
         while (ev >= 0 && sys3(SYS_read, ev, (long)e, 16) == 16) {
             int type = e[8] | (e[9] << 8), code = e[10] | (e[11] << 8), val = e[12] | (e[13] << 8);
-            if (type != 1 || val != 1) continue;
-            if (code == K_UP) up++; else if (code == K_DOWN) dn++; else if (code == K_LEFT) lf++;
-            else if (code == K_RIGHT) rt++; else if (code == K_GREEN) ga++; else if (code == K_RED) red++;
+            if (type != 1 || val == 2) continue;
+            int k = code == K_UP ? 0 : code == K_DOWN ? 1 : code == K_LEFT ? 2 : code == K_RIGHT ? 3 : code == K_GREEN ? 4 : code == K_RED ? 5 : -1;
+            if (k < 0) continue;
+            if (val == 1) {
+                kdn[k] = 1; kt0[k] = now; kfired[k] = 0; krep[k] = now;
+                if (k == 0) up++; else if (k == 1) dn++; else if (k == 2) lf++; else if (k == 3) rt++;
+            } else {
+                if (kdn[k] && k >= 4 && !kfired[k]) { if (k == 4) ga++; else red++; }
+                kdn[k] = 0;
+            }
         }
-        int now = now_ms();
+        if (kdn[4] && !kfired[4] && now - kt0[4] >= 600) { kfired[4] = 1; gh++; }
+        if (kdn[5] && !kfired[5] && now - kt0[5] >= 600) { kfired[5] = 1; rh++; }
+        if (pan_mode) for (int k = 0; k < 4; k++)       // held D-pad keeps the map gliding
+            if (kdn[k] && now - kt0[k] >= 350 && now - krep[k] >= 90) {
+                krep[k] = now; pan_by(k == 2 ? -W / 10 : k == 3 ? W / 10 : 0, k == 0 ? -H / 10 : k == 1 ? H / 10 : 0);
+                last_draw = now - 1000;                  // redraw now
+            }
         if (now - last_ref > 1000) { read_ref(); last_ref = now; }
         if (!src_net && now - rx_t0 >= 5000) {   // share of the 2 MS/s stream that reached us (drops show up here)
             rx_pct = (int)((t_samples - rx_s0) * 100 / ((long)(now - rx_t0) * (FS / 1000)));
             if (rx_pct > 100) rx_pct = 100;
             rx_t0 = now; rx_s0 = t_samples;
         }
-        if (up || dn || lf || rt || ga || red || now - last_draw >= 250) {
-            build_view(); quit = on_keys(up, dn, lf, rt, ga, red); build_view();
+        if (up || dn || lf || rt || ga || red || gh || rh || now - last_draw >= 250) {
+            build_view(); quit = on_keys(up, dn, lf, rt, ga, red, gh, rh); build_view();
             if (quit) { rc = quit == 10 ? 10 : 0; break; }
             if (sel_index() < 0 && nvis) sel_icao = vis[0].a->icao;
             update_rate(); prune(300L * FS); log_positions();
@@ -617,7 +633,7 @@ static void write_ppm(const char *path) {
     fclose(f);
 }
 // usage: radar_host file.cu8 outdir [ref_mode lat_e6 lon_e6] [keys]
-//   keys: string applied one per frame: u d l r g(green) b(red), '.' = nothing
+//   keys: string applied one per frame: u d l r g(green) b(red) G/B (green/red held), '.' = nothing
 int main(int argc, char **argv) {
     if (argc < 3) { fprintf(stderr, "usage: %s file.cu8 outdir [mode lat_e6 lon_e6] [keys]\n", argv[0]); return 1; }
     FILE *f = fopen(argv[1], "rb"); if (!f) { perror(argv[1]); return 1; }
@@ -643,7 +659,7 @@ int main(int argc, char **argv) {
 #endif
         char k = fr < (int)strlen(keys) ? keys[fr] : 0;
         build_view();
-        on_keys(k == 'u', k == 'd', k == 'l', k == 'r', k == 'g', k == 'b');
+        on_keys(k == 'u', k == 'd', k == 'l', k == 'r', k == 'g', k == 'b', k == 'G', k == 'B');
         build_view(); if (sel_index() < 0 && nvis) sel_icao = vis[0].a->icao;
         update_rate(); log_positions(); render(); frame_n++;
         char p[512]; snprintf(p, sizeof p, "%s/f%03d.ppm", argv[2], fr); write_ppm(p);

@@ -5,7 +5,7 @@ RTL-SDR on 1090 MHz, or pulled from a free community ADS-B feed when you'd rathe
 They're drawn on a built-in offline map of the whole US, on a radar scope, and on a full info card
 for each plane.
 
-> **Version 0.2.0, a work in progress.** It works and has been tested on a Pager running firmware
+> **Version 0.3.0, a work in progress.** It works and has been tested on a Pager running firmware
 > 2.0.0, but expect changes. Feedback welcome.
 
 ## What you need
@@ -70,10 +70,26 @@ It's used whenever there's no GPS fix. A GPS fix always wins.
 
 | Screen | Left / Right | Up / Down | Green (A) | Red (B) |
 |---|---|---|---|---|
-| MAP | Previous / next plane | Zoom in / out | Open INFO for the selected plane | Menu |
+| MAP | Previous / next plane | Zoom in / out | Open INFO for the selected plane · **hold: pan mode** | Menu |
 | RADAR | Previous / next plane | Range closer / wider | Open INFO | Menu |
 | INFO | Previous / next plane | – | Back | Back to the map or radar |
 | Menu | – | Move | Choose | Close |
+
+### Panning the map
+
+**Hold Green** (about half a second) on the MAP to enter **pan mode**. You'll see an amber frame and
+a crosshair.
+
+| In pan mode | |
+|---|---|
+| D-pad | Move the map (a tap moves a quarter of the screen; hold to keep gliding) |
+| Green / Red | Zoom in / out |
+| Hold Green | Done. The map stays where you left it; the top right shows `PANNED` |
+| Hold Red | Re-centre on you (or auto) and leave pan mode |
+
+After you leave pan mode, all the normal controls work again. To jump back later, use
+**Menu → CENTRE** (it reads `PANNED (RE-CENTRE)`). Taps on Green and Red now act when you let go,
+so a tap and a hold can be told apart.
 
 Planes are ordered nearest first. Planes on the ground (parked or taxiing) come last and are drawn
 as small grey dots.
@@ -84,7 +100,7 @@ as small grey dots.
 |---|---|
 | VIEW | MAP or RADAR |
 | LABELS | callsign, altitude (hundreds of feet) or off |
-| CENTRE | you/auto, or **follow the selected plane** |
+| CENTRE | you/auto, or **follow the selected plane**; after panning it shows `PANNED (RE-CENTRE)` |
 | GROUND | SHOW or HIDE parked/taxiing aircraft |
 | ALTITUDE | ALL, BELOW 10,000 FT or ABOVE 10,000 FT |
 | KIND | ALL, AIRLINERS, LIGHT & GA, HELICOPTERS or MILITARY |
@@ -169,7 +185,7 @@ A session that logs no positions leaves no file behind.
 - The default tuner gain is automatic. To change it, set `GAIN` at the top of `payload.sh`
   (e.g. `40.2` or `49.6`).
 
-## Known limits (0.2.0)
+## Known limits (0.3.0)
 
 - Decodes ADS-B extended squitter and Mode S replies (DF0/4/5/11/16/17/18/20/21). It does not do
   Mode A/C, MLAT or TIS-B.
